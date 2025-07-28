@@ -6,6 +6,7 @@ from typing import Dict, List, Any, Optional, Union
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.server.models import InitializationOptions
 from mcp.types import (
     Tool,
     TextContent,
@@ -16,7 +17,6 @@ from mcp.types import (
     ReadResourceResult,
 )
 
-from .auth.oauth2 import OAuth2Handler
 from .reso_client import ResoWebApiClient
 from .utils.data_mapper import ResoDataMapper
 from .utils.validators import QueryValidator, ValidationError
@@ -31,8 +31,11 @@ class UnlockMlsServer:
     def __init__(self):
         """Initialize the MCP server."""
         self.settings = get_settings()
-        self.oauth_handler = OAuth2Handler(self.settings)
-        self.reso_client = ResoWebApiClient(self.settings, self.oauth_handler)
+        self.reso_client = ResoWebApiClient(
+            base_url=self.settings.bridge_api_base_url,
+            mls_id=self.settings.bridge_mls_id,
+            server_token=self.settings.bridge_server_token
+        )
         self.data_mapper = ResoDataMapper()
         self.query_validator = QueryValidator()
         
@@ -1231,9 +1234,8 @@ You can also use specific filters:
     async def _get_api_status_info(self) -> str:
         """Get current API status and system information."""
         try:
-            # Test authentication
-            token = await self.oauth_handler.get_access_token()
-            auth_status = "✅ Connected" if token else "❌ Failed"
+            # Test authentication by checking if we have server token
+            auth_status = "✅ Connected" if self.settings.bridge_server_token else "❌ Failed"
             
             # Get basic system info
             status_content = f"""# API Status & System Information
@@ -1832,15 +1834,22 @@ Compare segments within same area:
         logger.info("Starting UNLOCK MLS MCP server")
         
         try:
-            # Test authentication
-            await self.oauth_handler.get_access_token()
-            logger.info("Authentication successful")
+            # Verify Bearer token is available
+            if not self.settings.bridge_server_token:
+                raise ValueError("Bridge server token is required")
+            logger.info("Authentication configured with Bearer token")
             
             # Run the server
             async with stdio_server() as (read_stream, write_stream):
+                init_options = InitializationOptions(
+                    server_name=self.settings.mcp_server_name,
+                    server_version="1.0.0",
+                    capabilities={}
+                )
                 await self.server.run(
                     read_stream,
-                    write_stream
+                    write_stream,
+                    init_options
                 )
                 
         except Exception as e:

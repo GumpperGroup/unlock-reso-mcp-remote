@@ -24,8 +24,8 @@ def setup_logging(name: Optional[str] = None) -> logging.Logger:
     # Remove existing handlers to avoid duplicates
     logger.handlers.clear()
     
-    # Create console handler
-    console_handler = logging.StreamHandler(sys.stdout)
+    # Create console handler - use stderr for MCP compatibility
+    console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(settings.log_level_numeric)
     
     # Create formatter

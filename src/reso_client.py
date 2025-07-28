@@ -9,7 +9,6 @@ import logging
 import aiohttp
 from aiohttp import ClientError, ClientResponseError
 
-from .auth.oauth2 import OAuth2Handler, OAuth2Error
 from .config.settings import settings
 from .config.logging_config import setup_logging
 
@@ -27,18 +26,18 @@ class ResoWebApiClient:
     def __init__(self,
                  base_url: Optional[str] = None,
                  mls_id: Optional[str] = None,
-                 oauth_handler: Optional[OAuth2Handler] = None):
+                 server_token: Optional[str] = None):
         """
         Initialize RESO Web API client.
         
         Args:
             base_url: API base URL (defaults to settings)
             mls_id: MLS identifier (defaults to settings)
-            oauth_handler: OAuth2 handler (creates new if None)
+            server_token: Bearer token (defaults to settings)
         """
         self.base_url = base_url or settings.bridge_api_base_url
         self.mls_id = mls_id or settings.bridge_mls_id
-        self.oauth_handler = oauth_handler or OAuth2Handler()
+        self.server_token = server_token or settings.bridge_server_token
         
         # Build OData endpoint URL
         self.odata_endpoint = f"{self.base_url}/OData/{self.mls_id}"
@@ -79,9 +78,17 @@ class ResoWebApiClient:
             ResoApiError: If request fails
         """
         try:
-            response = await self.oauth_handler.make_authenticated_request(
-                session, method, url, timeout=self.timeout, **kwargs
-            )
+            # Add Bearer token authentication
+            headers = kwargs.get('headers', {})
+            headers.update({
+                'Authorization': f'Bearer {self.server_token}',
+                'Accept': 'application/json',
+                'User-Agent': 'UNLOCK-MLS-MCP-Server/1.0'
+            })
+            kwargs['headers'] = headers
+            kwargs['timeout'] = self.timeout
+            
+            response = await session.request(method, url, **kwargs)
             
             response.raise_for_status()
             
@@ -112,9 +119,13 @@ class ResoWebApiClient:
             logger.error("API request failed: %s %s - %s", method, url, error_msg)
             raise ResoApiError(error_msg) from e
             
-        except OAuth2Error as e:
-            logger.error("Authentication failed: %s", str(e))
-            raise ResoApiError(f"Authentication failed: {str(e)}") from e
+        except Exception as auth_error:
+            # Handle any authentication-related errors
+            if "auth" in str(auth_error).lower():
+                logger.error("Authentication failed: %s", str(auth_error))
+                raise ResoApiError(f"Authentication failed: {str(auth_error)}") from auth_error
+            # Re-raise if not authentication related
+            raise
             
         except ClientError as e:
             logger.error("Network error: %s", str(e))
@@ -534,8 +545,7 @@ class ResoWebApiClient:
         logger.info("Performing RESO API health check")
         
         try:
-            # Test authentication
-            await self.oauth_handler.get_valid_token()
+            # Test authentication by making a simple API call
             
             # Test basic property query with minimal results
             results = await self.query_properties(limit=1)
