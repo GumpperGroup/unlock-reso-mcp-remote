@@ -188,6 +188,21 @@ class OAuth2Handler:
         
         return await self.authenticate()
     
+    async def get_access_token(self) -> str:
+        """
+        Get access token (alias for get_valid_token for API consistency).
+        
+        This method provides API consistency for callers expecting get_access_token()
+        while maintaining the existing get_valid_token() functionality.
+        
+        Returns:
+            Valid access token string
+            
+        Raises:
+            OAuth2Error: If unable to obtain valid token
+        """
+        return await self.get_valid_token()
+    
     def clear_token(self) -> None:
         """Clear the stored access token."""
         self._access_token = None
