@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     bridge_api_base_url: str = "https://api.bridgedataoutput.com/api/v2"
     bridge_client_id: str
     bridge_client_secret: str
-    bridge_mls_id: str = "UNLOCK"
+    bridge_mls_id: str = "actris-ref"
     bridge_server_token: Optional[str] = None
 
     # MCP Server Configuration
