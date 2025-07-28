@@ -1,0 +1,1 @@
+# Authentication module for Bridge Interactive RESO API

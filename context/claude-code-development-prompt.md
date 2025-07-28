@@ -39,7 +39,7 @@ UNLOCK-mls-mcp-server/
 │   └── config/
 │       └── settings.py        # Configuration
 ├── tests/
-├── requirements.txt
+├── pyproject.toml
 ├── .env.example
 └── README.md
 ```
@@ -216,12 +216,14 @@ LOG_LEVEL=INFO
 4. Add comprehensive logging
 
 ## Testing Requirements
+Please review the /Users/davidgumpper/Documents/projects/unlock-reso-mcp/context/claude-code-test-prompt.md to build out the testing todos
 
 ### Unit Tests
 - Test OAuth2 authentication flow
 - Test OData query builders
 - Test data mapping functions
-- Validate field transformations
+- Validate field transformation
+- Review the /Users/davidgumpper/Documents/projects/unlock-reso-mcp/context/test-prompt-concise.md and /Users/davidgumpper/Documents/projects/unlock-reso-mcp/context/unit-test-plan.md
 
 ### Integration Tests
 - Test full property search flow
