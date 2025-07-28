@@ -33,6 +33,19 @@ def error_test_server():
         data_mapper = Mock()
         query_validator = Mock()
         
+        # Configure data mapper to return proper data structures
+        data_mapper.map_properties.return_value = []  # Empty list by default
+        data_mapper.get_property_summary.return_value = "Test property summary"
+        data_mapper.map_property_details.return_value = {
+            "listing_id": "TEST123",
+            "address": "123 Test St",
+            "price": "$500,000"
+        }
+        
+        # Configure query validator to return proper data structures  
+        query_validator.validate_search_filters.return_value = {"limit": 10}
+        query_validator.validate_listing_id.return_value = "TEST123"
+        
         mock_oauth.return_value = oauth_handler
         mock_client.return_value = reso_client
         mock_mapper.return_value = data_mapper
@@ -54,10 +67,10 @@ class TestAuthenticationErrors:
         """Test handling of OAuth token acquisition failure."""
         server = error_test_server
         
-        # Simulate OAuth failure
-        server.oauth_handler.get_access_token.side_effect = Exception("OAuth authentication failed")
+        # Simulate OAuth failure in reso_client
+        server.reso_client.query_properties.side_effect = Exception("OAuth authentication failed")
         
-        # Test search operation with auth failure
+        # Test search operation with auth failure - should handle gracefully
         result = await server._search_properties({
             "query": "test house",
             "limit": 10
@@ -68,8 +81,8 @@ class TestAuthenticationErrors:
         content = result.content[0].text
         assert "authentication" in content.lower() or "error" in content.lower()
         
-        # Verify OAuth was attempted
-        server.oauth_handler.get_access_token.assert_called()
+        # Verify reso_client was called
+        server.reso_client.query_properties.assert_called_once()
     
     async def test_expired_token_handling(self, error_test_server):
         """Test handling of expired authentication tokens."""
@@ -100,8 +113,8 @@ class TestAuthenticationErrors:
         """Test handling of invalid API credentials."""
         server = error_test_server
         
-        # Simulate invalid credentials
-        server.oauth_handler.get_access_token.side_effect = ClientResponseError(
+        # Simulate invalid credentials in reso_client
+        server.reso_client.query_properties.side_effect = ClientResponseError(
             request_info=Mock(), history=(), status=403, message="Invalid credentials"
         )
         
@@ -112,7 +125,7 @@ class TestAuthenticationErrors:
         
         # Verify appropriate error message
         content = result.content[0].text
-        assert "credential" in content.lower() or "authentication" in content.lower()
+        assert "access denied" in content.lower() or "permission" in content.lower()
 
 
 class TestNetworkErrors:

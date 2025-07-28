@@ -280,42 +280,92 @@ class UnlockMlsServer:
     
     async def _search_properties(self, arguments: Dict[str, Any]) -> CallToolResult:
         """Search for properties."""
-        query = arguments.get("query")
-        filters = arguments.get("filters", {})
-        limit = arguments.get("limit", 25)
+        try:
+            query = arguments.get("query")
+            filters = arguments.get("filters", {})
+            limit = arguments.get("limit", 25)
+            
+            # Parse natural language query if provided
+            if query:
+                parsed_filters = self.query_validator.parse_natural_language_query(query)
+                # Merge with explicit filters (explicit takes precedence)
+                parsed_filters.update(filters)
+                filters = parsed_filters
+            
+            # Validate filters
+            if filters:
+                filters = self.query_validator.validate_search_filters(filters)
+            
+            logger.info("Searching properties with filters: %s", filters)
+            
+            # Search properties
+            properties = await self.reso_client.query_properties(
+                filters=filters,
+                limit=limit
+            )
+            
+            if not properties:
+                return CallToolResult(
+                    content=[TextContent(type="text", text="No properties found matching your criteria.")]
+                )
         
-        # Parse natural language query if provided
-        if query:
-            parsed_filters = self.query_validator.parse_natural_language_query(query)
-            # Merge with explicit filters (explicit takes precedence)
-            parsed_filters.update(filters)
-            filters = parsed_filters
-        
-        # Validate filters
-        if filters:
-            filters = self.query_validator.validate_search_filters(filters)
-        
-        logger.info("Searching properties with filters: %s", filters)
-        
-        # Search properties
-        properties = await self.reso_client.query_properties(
-            filters=filters,
-            limit=limit
-        )
-        
-        if not properties:
+        except Exception as e:
+            # Handle authentication and other errors gracefully
+            error_message = "An error occurred while searching for properties."
+            
+            if isinstance(e, ValidationError) or "validation" in str(e).lower():
+                error_message = f"Validation error: {str(e)}"
+            elif "authentication" in str(e).lower() or "unauthorized" in str(e).lower() or "401" in str(e):
+                error_message = "Authentication error: Unable to access property data. Please check your credentials."
+            elif "timeout" in str(e).lower():
+                error_message = "Request timeout: The property search is taking too long. Please try again with more specific criteria."
+            elif "parse" in str(e).lower() or "understand" in str(e).lower() or "query" in str(e).lower():
+                error_message = f"Query parsing error: Unable to understand the search query. {str(e)}"
+            elif "price range" in str(e).lower() or ("price" in str(e).lower() and "invalid" in str(e).lower()):
+                error_message = f"Invalid price range: {str(e)}"
+            elif "location" in str(e).lower() and "invalid" in str(e).lower():
+                error_message = f"Invalid location parameters: {str(e)}"
+            elif hasattr(e, 'status'):
+                if e.status == 403:
+                    error_message = "Access denied: You don't have permission to access this property data."
+                elif e.status == 429:
+                    error_message = "Rate limit exceeded: Too many requests. Please wait a moment and try again."
+                elif e.status >= 500:
+                    error_message = "Server error: The property service is temporarily unavailable. Please try again later."
+            
+            logger.error("Property search error: %s", str(e))
             return CallToolResult(
-                content=[TextContent(type="text", text="No properties found matching your criteria.")]
+                content=[TextContent(type="text", text=error_message)]
             )
         
         # Map properties to standardized format
-        mapped_properties = self.data_mapper.map_properties(properties)
+        try:
+            mapped_properties = self.data_mapper.map_properties(properties)
+        except Exception as mapping_error:
+            logger.warning("Data mapping error, returning limited results: %s", mapping_error)
+            # Return basic property data without full mapping
+            result_text = f"Found {len(properties)} properties (limited details due to data formatting issues):\n\n"
+            for i, prop in enumerate(properties[:limit], 1):
+                listing_id = prop.get("ListingId", "N/A")
+                price = prop.get("ListPrice", "N/A")
+                result_text += f"{i}. **{listing_id}** - ${price:,}\n" if isinstance(price, (int, float)) else f"{i}. **{listing_id}** - {price}\n"
+            
+            result_text += f"\n**Note**: Some property details unavailable due to data formatting issues.\n"
+            result_text += f"- Results: {len(properties)} properties found\n"
+            
+            return CallToolResult(
+                content=[TextContent(type="text", text=result_text)]
+            )
         
         # Format results
         result_text = f"Found {len(mapped_properties)} properties:\n\n"
         
         for i, prop in enumerate(mapped_properties[:limit], 1):
-            summary = self.data_mapper.get_property_summary(prop)
+            try:
+                summary = self.data_mapper.get_property_summary(prop)
+            except Exception as summary_error:
+                logger.warning("Property summary error for listing %s: %s", prop.get('listing_id', 'N/A'), summary_error)
+                summary = "Details unavailable due to data formatting issues"
             result_text += f"{i}. **{prop.get('listing_id', 'N/A')}** - {summary}\n"
             
             if prop.get("address"):
@@ -332,7 +382,7 @@ class UnlockMlsServer:
         result_text += f"\n**Search Summary:**\n"
         if query:
             result_text += f"- Query: {query}\n"
-        if filters:
+        if filters and isinstance(filters, dict):
             filter_summary = []
             for key, value in filters.items():
                 if key.startswith(('min_', 'max_')):
@@ -483,113 +533,142 @@ class UnlockMlsServer:
     
     async def _analyze_market(self, arguments: Dict[str, Any]) -> CallToolResult:
         """Analyze market trends and statistics."""
-        city = arguments.get("city")
-        state = arguments.get("state")
-        zip_code = arguments.get("zip_code")
-        property_type = arguments.get("property_type", "residential")
-        days_back = arguments.get("days_back", 90)
-        
-        logger.info("Analyzing market for location: %s %s %s", city, state, zip_code)
-        
-        # Build location filter
-        location_filter = {}
-        if city:
-            location_filter["city"] = city
-        if state:
-            location_filter["state"] = state
-        if zip_code:
-            location_filter["zip_code"] = zip_code
-        
-        location_filter["property_type"] = property_type
-        
-        # Get active listings
-        active_properties = await self.reso_client.query_properties(
-            filters={**location_filter, "status": "active"},
-            limit=1000
-        )
-        
-        # Get recently sold properties
-        sold_properties = await self.reso_client.query_properties(
-            filters={**location_filter, "status": "sold"},
-            limit=1000
-        )
-        
-        # Map properties
-        active_mapped = self.data_mapper.map_properties(active_properties)
-        sold_mapped = self.data_mapper.map_properties(sold_properties)
-        
-        # Calculate statistics
-        location_name = f"{city}, {state}" if city and state else zip_code or "the area"
-        
-        result_text = f"# Market Analysis - {location_name.title()}\n\n"
-        result_text += f"**Property Type**: {property_type.replace('_', ' ').title()}\n"
-        result_text += f"**Analysis Period**: Last {days_back} days\n\n"
-        
-        # Active listings analysis
-        result_text += "## Active Listings\n"
-        result_text += f"- **Total Active**: {len(active_mapped)} properties\n"
-        
-        if active_mapped:
-            prices = [p["list_price"] for p in active_mapped if p.get("list_price")]
-            if prices:
-                result_text += f"- **Average Price**: ${sum(prices) // len(prices):,}\n"
-                result_text += f"- **Median Price**: ${sorted(prices)[len(prices)//2]:,}\n"
-                result_text += f"- **Price Range**: ${min(prices):,} - ${max(prices):,}\n"
+        try:
+            city = arguments.get("city")
+            state = arguments.get("state")
+            zip_code = arguments.get("zip_code")
+            property_type = arguments.get("property_type", "residential")
+            days_back = arguments.get("days_back", 90)
             
-            sqft_data = [(p["square_feet"], p["list_price"]) for p in active_mapped 
-                        if p.get("square_feet") and p.get("list_price")]
-            if sqft_data:
-                avg_price_per_sqft = sum(price/sqft for sqft, price in sqft_data) / len(sqft_data)
-                result_text += f"- **Average Price/SqFt**: ${avg_price_per_sqft:.2f}\n"
+            logger.info("Analyzing market for location: %s %s %s", city, state, zip_code)
             
-            # Bedroom distribution
-            bedroom_counts = {}
-            for prop in active_mapped:
-                bedrooms = prop.get("bedrooms")
-                if bedrooms:
-                    bedroom_counts[bedrooms] = bedroom_counts.get(bedrooms, 0) + 1
+            # Build location filter
+            location_filter = {}
+            if city:
+                location_filter["city"] = city
+            if state:
+                location_filter["state"] = state
+            if zip_code:
+                location_filter["zip_code"] = zip_code
             
-            if bedroom_counts:
-                result_text += "- **Bedroom Distribution**:\n"
-                for bedrooms in sorted(bedroom_counts.keys()):
-                    result_text += f"  - {bedrooms} BR: {bedroom_counts[bedrooms]} properties\n"
-        
-        # Recently sold analysis
-        result_text += "\n## Recently Sold Properties\n"
-        result_text += f"- **Total Sold**: {len(sold_mapped)} properties\n"
-        
-        if sold_mapped:
-            sold_prices = [p["sold_price"] for p in sold_mapped if p.get("sold_price")]
-            if sold_prices:
-                result_text += f"- **Average Sold Price**: ${sum(sold_prices) // len(sold_prices):,}\n"
-                result_text += f"- **Median Sold Price**: ${sorted(sold_prices)[len(sold_prices)//2]:,}\n"
-                result_text += f"- **Sold Price Range**: ${min(sold_prices):,} - ${max(sold_prices):,}\n"
-        
-        # Market insights
-        result_text += "\n## Market Insights\n"
-        if active_mapped and sold_mapped:
-            active_avg = sum(p["list_price"] for p in active_mapped if p.get("list_price")) / len([p for p in active_mapped if p.get("list_price")])
-            sold_avg = sum(p["sold_price"] for p in sold_mapped if p.get("sold_price")) / len([p for p in sold_mapped if p.get("sold_price")])
+            location_filter["property_type"] = property_type
             
-            if active_avg and sold_avg:
-                price_trend = ((active_avg - sold_avg) / sold_avg) * 100
-                if price_trend > 5:
-                    result_text += f"- **Price Trend**: Rising (active listings {price_trend:.1f}% higher than recent sales)\n"
-                elif price_trend < -5:
-                    result_text += f"- **Price Trend**: Declining (active listings {abs(price_trend):.1f}% lower than recent sales)\n"
-                else:
-                    result_text += f"- **Price Trend**: Stable (active listings within 5% of recent sales)\n"
+            # Validate location filters
+            validated_filters = self.query_validator.validate_search_filters(location_filter)
             
-            if len(active_mapped) > 0:
-                inventory_level = "High" if len(active_mapped) > 50 else "Moderate" if len(active_mapped) > 20 else "Low"
-                result_text += f"- **Inventory Level**: {inventory_level} ({len(active_mapped)} active listings)\n"
+            # Get active listings
+            active_properties = await self.reso_client.query_properties(
+                filters={**validated_filters, "status": "active"},
+                limit=1000
+            )
+            
+            # Get recently sold properties
+            sold_properties = await self.reso_client.query_properties(
+                filters={**validated_filters, "status": "sold"},
+                limit=1000
+            )
+            
+            # Map properties
+            active_mapped = self.data_mapper.map_properties(active_properties)
+            sold_mapped = self.data_mapper.map_properties(sold_properties)
+            
+            # Calculate statistics
+            location_name = f"{city}, {state}" if city and state else zip_code or "the area"
+            
+            result_text = f"# Market Analysis - {location_name.title()}\n\n"
+            result_text += f"**Property Type**: {property_type.replace('_', ' ').title()}\n"
+            result_text += f"**Analysis Period**: Last {days_back} days\n\n"
+            
+            # Active listings analysis
+            result_text += "## Active Listings\n"
+            result_text += f"- **Total Active**: {len(active_mapped)} properties\n"
+            
+            if active_mapped:
+                prices = [p["list_price"] for p in active_mapped if p.get("list_price")]
+                if prices:
+                    result_text += f"- **Average Price**: ${sum(prices) // len(prices):,}\n"
+                    result_text += f"- **Median Price**: ${sorted(prices)[len(prices)//2]:,}\n"
+                    result_text += f"- **Price Range**: ${min(prices):,} - ${max(prices):,}\n"
+                
+                sqft_data = [(p["square_feet"], p["list_price"]) for p in active_mapped 
+                            if p.get("square_feet") and p.get("list_price")]
+                if sqft_data:
+                    avg_price_per_sqft = sum(price/sqft for sqft, price in sqft_data) / len(sqft_data)
+                    result_text += f"- **Average Price/SqFt**: ${avg_price_per_sqft:.2f}\n"
+                
+                # Bedroom distribution
+                bedroom_counts = {}
+                for prop in active_mapped:
+                    bedrooms = prop.get("bedrooms")
+                    if bedrooms:
+                        bedroom_counts[bedrooms] = bedroom_counts.get(bedrooms, 0) + 1
+                
+                if bedroom_counts:
+                    result_text += "- **Bedroom Distribution**:\n"
+                    for bedrooms in sorted(bedroom_counts.keys()):
+                        result_text += f"  - {bedrooms} BR: {bedroom_counts[bedrooms]} properties\n"
+            
+            # Recently sold analysis
+            result_text += "\n## Recently Sold Properties\n"
+            result_text += f"- **Total Sold**: {len(sold_mapped)} properties\n"
+            
+            if sold_mapped:
+                sold_prices = [p["sold_price"] for p in sold_mapped if p.get("sold_price")]
+                if sold_prices:
+                    result_text += f"- **Average Sold Price**: ${sum(sold_prices) // len(sold_prices):,}\n"
+                    result_text += f"- **Median Sold Price**: ${sorted(sold_prices)[len(sold_prices)//2]:,}\n"
+                    result_text += f"- **Sold Price Range**: ${min(sold_prices):,} - ${max(sold_prices):,}\n"
+            
+            # Market insights
+            result_text += "\n## Market Insights\n"
+            if active_mapped and sold_mapped:
+                active_avg = sum(p["list_price"] for p in active_mapped if p.get("list_price")) / len([p for p in active_mapped if p.get("list_price")])
+                sold_avg = sum(p["sold_price"] for p in sold_mapped if p.get("sold_price")) / len([p for p in sold_mapped if p.get("sold_price")])
+                
+                if active_avg and sold_avg:
+                    price_trend = ((active_avg - sold_avg) / sold_avg) * 100
+                    if price_trend > 5:
+                        result_text += f"- **Price Trend**: Rising (active listings {price_trend:.1f}% higher than recent sales)\n"
+                    elif price_trend < -5:
+                        result_text += f"- **Price Trend**: Declining (active listings {abs(price_trend):.1f}% lower than recent sales)\n"
+                    else:
+                        result_text += f"- **Price Trend**: Stable (active listings within 5% of recent sales)\n"
+                
+                if len(active_mapped) > 0:
+                    inventory_level = "High" if len(active_mapped) > 50 else "Moderate" if len(active_mapped) > 20 else "Low"
+                    result_text += f"- **Inventory Level**: {inventory_level} ({len(active_mapped)} active listings)\n"
+            
+            if not active_mapped and not sold_mapped:
+                result_text += "No properties found for the specified criteria.\n"
+            
+            return CallToolResult(
+                content=[TextContent(type="text", text=result_text)]
+            )
         
-        if not active_mapped and not sold_mapped:
-            result_text += "No properties found for the specified criteria.\n"
-        
-        return CallToolResult(
-            content=[TextContent(type="text", text=result_text)]
-        )
+        except Exception as e:
+            # Handle errors gracefully
+            error_message = "An error occurred while analyzing the market."
+            
+            if isinstance(e, ValidationError) or "validation" in str(e).lower():
+                error_message = f"Validation error: {str(e)}"
+            elif "authentication" in str(e).lower() or "unauthorized" in str(e).lower() or "401" in str(e):
+                error_message = "Authentication error: Unable to access market data. Please check your credentials."
+            elif "timeout" in str(e).lower():
+                error_message = "Request timeout: The market analysis is taking too long. Please try again."
+            elif "location" in str(e).lower() and "invalid" in str(e).lower():
+                error_message = f"Invalid location parameters: {str(e)}"
+            elif hasattr(e, 'status'):
+                if e.status == 403:
+                    error_message = "Access denied: You don't have permission to access market data."
+                elif e.status == 429:
+                    error_message = "Rate limit exceeded: Too many requests. Please wait a moment and try again."
+                elif e.status >= 500:
+                    error_message = "Server error: The market analysis service is temporarily unavailable. Please try again later."
+            
+            logger.error("Market analysis error: %s", str(e))
+            return CallToolResult(
+                content=[TextContent(type="text", text=error_message)]
+            )
     
     async def _find_agent(self, arguments: Dict[str, Any]) -> CallToolResult:
         """Find real estate agents or members."""

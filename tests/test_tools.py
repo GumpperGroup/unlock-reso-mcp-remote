@@ -40,6 +40,10 @@ def mock_data_mapper():
 def mock_query_validator():
     """Mock query validator."""
     validator = Mock()
+    # Configure default return values
+    validator.validate_search_filters.return_value = {}
+    validator.parse_natural_language_query.return_value = {}
+    validator.validate_listing_id.return_value = "TEST123"
     return validator
 
 @pytest.fixture
@@ -395,6 +399,13 @@ class TestAnalyzeMarket:
             mapped_sold_properties
         ]
         
+        # Configure validator to return the expected filters
+        server.query_validator.validate_search_filters.return_value = {
+            "city": "Austin",
+            "state": "TX", 
+            "property_type": "residential"
+        }
+        
         # Test market analysis
         result = await server._analyze_market({
             "city": "Austin",
@@ -429,6 +440,12 @@ class TestAnalyzeMarket:
         server.reso_client.query_properties.return_value = []
         server.data_mapper.map_properties.return_value = []
         
+        # Configure validator to return the expected filters
+        server.query_validator.validate_search_filters.return_value = {
+            "zip_code": "78701",
+            "property_type": "condo"
+        }
+        
         # Test market analysis
         result = await server._analyze_market({
             "zip_code": "78701",
@@ -459,6 +476,12 @@ class TestAnalyzeMarket:
             mapped_active_properties,
             mapped_sold_properties
         ]
+        
+        # Configure validator to return the expected filters
+        server.query_validator.validate_search_filters.return_value = {
+            "city": "Austin",
+            "state": "TX"
+        }
         
         # Test market analysis
         result = await server._analyze_market({
