@@ -1,3 +1,4 @@
+
 """MCP server implementation for UNLOCK MLS RESO data access."""
 
 import asyncio
@@ -11,9 +12,6 @@ from mcp.types import (
     Tool,
     TextContent,
     Resource,
-    CallToolResult,
-    ListResourcesResult,
-    ListToolsResult,
     ReadResourceResult,
 )
 
@@ -49,7 +47,7 @@ class UnlockMlsServer:
         """Set up MCP server handlers."""
         
         @self.server.list_tools()
-        async def handle_list_tools() -> ListToolsResult:
+        async def handle_list_tools() -> list[Tool]:
             """List available MCP tools."""
             tools = [
                 Tool(
@@ -171,10 +169,10 @@ class UnlockMlsServer:
                 )
             ]
             
-            return ListToolsResult(tools=tools)
+            return tools
         
         @self.server.call_tool()
-        async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> CallToolResult:
+        async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> list[TextContent]:
             """Handle tool calls."""
             try:
                 if name == "search_properties":
@@ -190,17 +188,13 @@ class UnlockMlsServer:
                     
             except ValidationError as e:
                 logger.warning("Validation error in %s: %s", name, e)
-                return CallToolResult(
-                    content=[TextContent(type="text", text=f"Validation error: {str(e)}")]
-                )
+                return [TextContent(type="text", text=f"Validation error: {str(e)}")]
             except Exception as e:
                 logger.error("Error in %s: %s", name, e, exc_info=True)
-                return CallToolResult(
-                    content=[TextContent(type="text", text=f"Error: {str(e)}")]
-                )
+                return [TextContent(type="text", text=f"Error: {str(e)}")]
         
         @self.server.list_resources()
-        async def handle_list_resources() -> ListResourcesResult:
+        async def handle_list_resources() -> list[Resource]:
             """List available MCP resources."""
             resources = [
                 Resource(
@@ -253,7 +247,7 @@ class UnlockMlsServer:
                 )
             ]
             
-            return ListResourcesResult(resources=resources)
+            return resources
         
         @self.server.read_resource()
         async def handle_read_resource(uri: str) -> ReadResourceResult:
@@ -281,7 +275,7 @@ class UnlockMlsServer:
                 contents=[TextContent(type="text", text=content)]
             )
     
-    async def _search_properties(self, arguments: Dict[str, Any]) -> CallToolResult:
+    async def _search_properties(self, arguments: Dict[str, Any]) -> list[TextContent]:
         """Search for properties."""
         try:
             query = arguments.get("query")
@@ -308,9 +302,8 @@ class UnlockMlsServer:
             )
             
             if not properties:
-                return CallToolResult(
-                    content=[TextContent(type="text", text="No properties found matching your criteria.")]
-                )
+                return [
+                    TextContent(type="text", text="No properties found matching your criteria.")]
         
         except Exception as e:
             # Handle authentication and other errors gracefully
@@ -337,10 +330,11 @@ class UnlockMlsServer:
                     error_message = "Server error: The property service is temporarily unavailable. Please try again later."
             
             logger.error("Property search error: %s", str(e))
-            return CallToolResult(
-                content=[TextContent(type="text", text=error_message)]
-            )
+            return [
+                TextContent(type="text", text=error_message)]
+
         
+            
         # Map properties to standardized format
         try:
             mapped_properties = self.data_mapper.map_properties(properties)
@@ -356,9 +350,9 @@ class UnlockMlsServer:
             result_text += f"\n**Note**: Some property details unavailable due to data formatting issues.\n"
             result_text += f"- Results: {len(properties)} properties found\n"
             
-            return CallToolResult(
-                content=[TextContent(type="text", text=result_text)]
-            )
+            return [
+                TextContent(type="text", text=result_text)]
+
         
         # Format results
         result_text = f"Found {len(mapped_properties)} properties:\n\n"
@@ -395,11 +389,11 @@ class UnlockMlsServer:
             result_text += f"- Filters: {', '.join(filter_summary)}\n"
         result_text += f"- Results: {len(mapped_properties)} properties\n"
         
-        return CallToolResult(
-            content=[TextContent(type="text", text=result_text)]
-        )
+        return [
+            TextContent(type="text", text=result_text)]
+
     
-    async def _get_property_details(self, arguments: Dict[str, Any]) -> CallToolResult:
+    async def _get_property_details(self, arguments: Dict[str, Any]) -> list[TextContent]:
         """Get detailed property information."""
         listing_id = arguments["listing_id"]
         
@@ -412,9 +406,9 @@ class UnlockMlsServer:
         )
         
         if not properties:
-            return CallToolResult(
-                content=[TextContent(type="text", text=f"Property with listing ID '{listing_id}' not found.")]
-            )
+            return [
+                TextContent(type="text", text=f"Property with listing ID '{listing_id}' not found.")]
+
         
         # Map property to standardized format
         property_data = self.data_mapper.map_property(properties[0])
@@ -530,11 +524,11 @@ class UnlockMlsServer:
         if property_data.get("showing_instructions"):
             result_text += f"\n## Showing Instructions\n{property_data['showing_instructions']}\n"
         
-        return CallToolResult(
-            content=[TextContent(type="text", text=result_text)]
-        )
+        return [
+            TextContent(type="text", text=result_text)]
+
     
-    async def _analyze_market(self, arguments: Dict[str, Any]) -> CallToolResult:
+    async def _analyze_market(self, arguments: Dict[str, Any]) -> list[TextContent]:
         """Analyze market trends and statistics."""
         try:
             city = arguments.get("city")
@@ -644,9 +638,9 @@ class UnlockMlsServer:
             if not active_mapped and not sold_mapped:
                 result_text += "No properties found for the specified criteria.\n"
             
-            return CallToolResult(
-                content=[TextContent(type="text", text=result_text)]
-            )
+            return [
+                TextContent(type="text", text=result_text)]
+
         
         except Exception as e:
             # Handle errors gracefully
@@ -669,11 +663,11 @@ class UnlockMlsServer:
                     error_message = "Server error: The market analysis service is temporarily unavailable. Please try again later."
             
             logger.error("Market analysis error: %s", str(e))
-            return CallToolResult(
-                content=[TextContent(type="text", text=error_message)]
-            )
+            return [
+                TextContent(type="text", text=error_message)]
+
     
-    async def _find_agent(self, arguments: Dict[str, Any]) -> CallToolResult:
+    async def _find_agent(self, arguments: Dict[str, Any]) -> list[TextContent]:
         """Find real estate agents or members."""
         name = arguments.get("name")
         office = arguments.get("office")
@@ -704,9 +698,9 @@ class UnlockMlsServer:
         )
         
         if not members:
-            return CallToolResult(
-                content=[TextContent(type="text", text="No agents found matching your criteria.")]
-            )
+            return [
+                TextContent(type="text", text="No agents found matching your criteria.")]
+
         
         # Format results
         result_text = f"Found {len(members)} real estate agents:\n\n"
@@ -771,9 +765,9 @@ class UnlockMlsServer:
             result_text += f"- Criteria: {', '.join(search_criteria)}\n"
         result_text += f"- Results: {len(members)} agents found\n"
         
-        return CallToolResult(
-            content=[TextContent(type="text", text=result_text)]
-        )
+        return [
+            TextContent(type="text", text=result_text)]
+
     
     def _get_search_examples(self) -> str:
         """Get property search examples."""
@@ -1851,7 +1845,6 @@ Compare segments within same area:
                     write_stream,
                     init_options
                 )
-                
         except Exception as e:
             logger.error("Failed to start server: %s", e, exc_info=True)
             raise
@@ -1863,3 +1856,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
