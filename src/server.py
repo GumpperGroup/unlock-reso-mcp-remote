@@ -217,6 +217,36 @@ class UnlockMlsServer:
                     name="Market Analysis Guide",
                     description="Guide for understanding market analysis data",
                     mimeType="text/markdown"
+                ),
+                Resource(
+                    uri="agent://search/guide",
+                    name="Agent Search Guide",
+                    description="Guide for finding and working with real estate agents",
+                    mimeType="text/markdown"
+                ),
+                Resource(
+                    uri="workflows://common/patterns",
+                    name="Common Workflows",
+                    description="Common real estate data workflows and use cases",
+                    mimeType="text/markdown"
+                ),
+                Resource(
+                    uri="api://status/info",
+                    name="API Status & Info",
+                    description="Current API connection status and system information",
+                    mimeType="text/markdown"
+                ),
+                Resource(
+                    uri="prompts://guided/search",
+                    name="Guided Property Search",
+                    description="Step-by-step guided property search workflows",
+                    mimeType="text/markdown"
+                ),
+                Resource(
+                    uri="prompts://guided/analysis",
+                    name="Guided Market Analysis",
+                    description="Step-by-step guided market analysis workflows",
+                    mimeType="text/markdown"
                 )
             ]
             
@@ -231,6 +261,16 @@ class UnlockMlsServer:
                 content = self._get_property_types_reference()
             elif uri == "market://analysis/guide":
                 content = self._get_market_analysis_guide()
+            elif uri == "agent://search/guide":
+                content = self._get_agent_search_guide()
+            elif uri == "workflows://common/patterns":
+                content = self._get_common_workflows()
+            elif uri == "api://status/info":
+                content = await self._get_api_status_info()
+            elif uri == "prompts://guided/search":
+                content = self._get_guided_search_prompts()
+            elif uri == "prompts://guided/analysis":
+                content = self._get_guided_analysis_prompts()
             else:
                 raise ValueError(f"Unknown resource: {uri}")
             
@@ -838,6 +878,875 @@ You can also use specific filters:
 - **Location**: Use city/state or ZIP code for geographic focus
 - **Price Range**: Filter by price ranges for segment-specific analysis
 """
+    
+    def _get_agent_search_guide(self) -> str:
+        """Get agent search guide."""
+        return """# Agent Search Guide
+
+## Finding Real Estate Agents
+
+### Search by Name
+- Use partial or full agent names to find specific agents
+- Example: `find_agent(name="John Smith")`
+- Supports fuzzy matching for approximate names
+
+### Search by Location
+- Find agents in specific cities or states
+- Example: `find_agent(city="Austin", state="TX")`
+- Useful for finding local market experts
+
+### Search by Office
+- Find all agents associated with a specific brokerage
+- Example: `find_agent(office="Keller Williams")`
+- Helps identify team members or office contacts
+
+### Search by Specialization
+- Find agents with specific expertise areas
+- Example: `find_agent(specialization="luxury homes")`
+- Common specializations: first-time buyers, luxury, commercial, investment
+
+## Agent Information Available
+
+### Contact Details
+- **Email**: Primary contact email address
+- **Phone**: Mobile or direct phone numbers
+- **Office Phone**: Main office contact number
+
+### Professional Information
+- **License Number**: State real estate license
+- **Office Affiliation**: Current brokerage association
+- **Designations**: Professional certifications (CRS, GRI, etc.)
+
+### Location Coverage
+- **Primary Market**: Main city/county of operation
+- **Service Areas**: Geographic regions covered
+- **Local Expertise**: Years of experience in area
+
+## Working with Agents
+
+### Initial Contact
+1. Use agent search to find qualified professionals
+2. Review their location and specialization match
+3. Contact via preferred method (email/phone)
+4. Discuss your specific needs and timeline
+
+### Vetting Questions
+- How long have you worked in this market?
+- What's your average days on market for listings?
+- Can you provide references from recent clients?
+- What's your commission structure?
+
+### Collaboration Tips
+- Be clear about your budget and requirements
+- Ask for market analysis and comparable sales
+- Request regular communication and updates
+- Understand their marketing strategy for your property
+
+## Agent Selection Criteria
+
+### For Buyers
+- **Local Market Knowledge**: Deep understanding of neighborhoods
+- **Negotiation Skills**: Track record of successful purchases
+- **Response Time**: Quick communication and showing availability
+- **Technology Use**: MLS access and digital tools proficiency
+
+### For Sellers
+- **Marketing Strategy**: Comprehensive listing and promotion plan
+- **Pricing Expertise**: Accurate comparative market analysis
+- **Network**: Connections with other agents and service providers
+- **Track Record**: Recent sales history and average days on market
+
+### For Investors
+- **Investment Experience**: Understanding of cash flow and ROI
+- **Market Analysis**: Ability to identify emerging opportunities
+- **Rental Knowledge**: Understanding of landlord-tenant law
+- **Network**: Connections with contractors, property managers
+
+## Common Agent Types
+
+### Buyer's Agents
+- Represent buyers in property purchases
+- Help with property search and negotiation
+- Typically paid by seller's commission split
+
+### Listing Agents
+- Represent sellers in property sales
+- Handle marketing, showings, and negotiations
+- Paid commission percentage of sale price
+
+### Dual Agents
+- Represent both buyer and seller (where legal)
+- Must disclose dual representation
+- May have limitations on advocacy
+
+### Team Leaders vs Individual Agents
+- **Teams**: Multiple agents, specialized roles, broader coverage
+- **Individual**: Personal attention, direct communication, consistent service
+"""
+    
+    def _get_common_workflows(self) -> str:
+        """Get common real estate workflows."""
+        return """# Common Real Estate Workflows
+
+## Buyer Workflows
+
+### First-Time Home Buyer Journey
+1. **Pre-Qualification**
+   - Get pre-approved for mortgage
+   - Understand budget and down payment requirements
+   - Research mortgage programs (FHA, VA, conventional)
+
+2. **Market Research**
+   - Use `search_properties` to explore available homes
+   - Set up saved searches with specific criteria
+   - Research neighborhoods and school districts
+
+3. **Property Evaluation**
+   - Use `get_property_details` for comprehensive information
+   - Schedule showings and inspections
+   - Research comparable sales in the area
+
+4. **Market Analysis**
+   - Use `analyze_market` to understand pricing trends
+   - Compare multiple neighborhoods or property types
+   - Assess market conditions (buyer's vs seller's market)
+
+5. **Agent Selection**
+   - Use `find_agent` to identify qualified buyer's agents
+   - Interview multiple agents for best fit
+   - Check references and recent transaction history
+
+### Investment Property Search
+1. **Market Identification**
+   - Use `analyze_market` for different cities/regions
+   - Compare rental yields and appreciation potential
+   - Research local rental market conditions
+
+2. **Property Screening**
+   - Filter by cash flow criteria using `search_properties`
+   - Calculate cap rates and cash-on-cash returns
+   - Evaluate property condition and improvement needs
+
+3. **Due Diligence**
+   - Get detailed property information with `get_property_details`
+   - Research comparable rental rates
+   - Analyze neighborhood crime and development trends
+
+## Seller Workflows
+
+### Property Preparation for Sale
+1. **Market Analysis**
+   - Use `analyze_market` to understand current conditions
+   - Research recent comparable sales
+   - Determine optimal pricing strategy
+
+2. **Agent Selection**
+   - Use `find_agent` to find experienced listing agents
+   - Compare marketing strategies and commission structures
+   - Review recent sales performance and market expertise
+
+3. **Property Positioning**
+   - Research competing listings with `search_properties`
+   - Identify unique selling points and advantages
+   - Plan improvements or staging strategies
+
+### Pricing Strategy Development
+1. **Comparative Market Analysis**
+   - Search recently sold properties with similar features
+   - Analyze price per square foot trends
+   - Consider market timing and seasonal factors
+
+2. **Competitive Analysis**
+   - Monitor active listings in the same area
+   - Track price changes and days on market
+   - Adjust pricing based on market feedback
+
+## Real Estate Professional Workflows
+
+### Agent Market Preparation
+1. **Client Consultation Prep**
+   - Use `analyze_market` for comprehensive market overview
+   - Prepare comparable sales data
+   - Research neighborhood trends and demographics
+
+2. **Listing Presentation Development**
+   - Gather comparable active and sold properties
+   - Prepare pricing recommendations with supporting data
+   - Create marketing strategy based on market conditions
+
+3. **Buyer Consultation**
+   - Prepare market overview for target areas
+   - Research inventory levels and competition
+   - Develop realistic expectation setting materials
+
+### Market Research Workflows
+1. **Quarterly Market Reports**
+   - Analyze trends across multiple property types
+   - Compare different neighborhoods or regions
+   - Track inventory levels and price movements
+
+2. **Client Market Updates**
+   - Monitor specific areas for client interests
+   - Track new listings and price changes
+   - Provide regular market condition updates
+
+## Investor Workflows
+
+### Portfolio Analysis
+1. **Market Comparison**
+   - Use `analyze_market` across multiple cities
+   - Compare cap rates and appreciation potential
+   - Analyze supply and demand indicators
+
+2. **Property Pipeline Management**
+   - Set up searches for specific investment criteria
+   - Monitor multiple markets simultaneously
+   - Track new opportunities and market changes
+
+### Risk Assessment
+1. **Market Diversification**
+   - Analyze different geographic markets
+   - Compare property types and price ranges
+   - Assess economic dependency and stability
+
+2. **Exit Strategy Planning**
+   - Monitor market conditions for optimal timing
+   - Track appreciation trends and rental demand
+   - Plan renovation and improvement strategies
+
+## API Integration Patterns
+
+### Automated Monitoring
+- Set up regular market analysis for target areas
+- Monitor specific property criteria with alerts
+- Track agent performance and availability
+
+### Data Integration
+- Export property data for external analysis
+- Integrate with CRM systems for client management
+- Connect with financial planning tools
+
+### Workflow Automation
+- Automate initial property screening
+- Schedule regular market report generation
+- Integrate with calendar systems for showing coordination
+
+## Best Practices
+
+### Search Optimization
+- Start broad, then narrow with specific criteria
+- Use natural language queries for exploratory searches
+- Combine multiple search approaches for comprehensive results
+
+### Data Validation
+- Cross-reference multiple data sources
+- Verify property details with recent information
+- Confirm agent credentials and current status
+
+### Market Timing
+- Consider seasonal market patterns
+- Monitor interest rate impacts on demand
+- Track local economic indicators and development plans
+"""
+    
+    async def _get_api_status_info(self) -> str:
+        """Get current API status and system information."""
+        try:
+            # Test authentication
+            token = await self.oauth_handler.get_access_token()
+            auth_status = "✅ Connected" if token else "❌ Failed"
+            
+            # Get basic system info
+            status_content = f"""# API Status & System Information
+
+## Authentication Status
+- **OAuth2 Connection**: {auth_status}
+- **Bridge API**: {self.settings.bridge_api_base_url}
+- **MLS ID**: {self.settings.bridge_mls_id}
+
+## Available Tools
+- **search_properties**: ✅ Ready - Search for properties using natural language or filters
+- **get_property_details**: ✅ Ready - Get comprehensive property information
+- **analyze_market**: ✅ Ready - Analyze market trends and statistics
+- **find_agent**: ✅ Ready - Find real estate agents and members
+
+## Available Resources
+- **Property Search Examples**: ✅ Ready - Common search query examples
+- **Property Types Reference**: ✅ Ready - Property types and status guide
+- **Market Analysis Guide**: ✅ Ready - Understanding market data
+- **Agent Search Guide**: ✅ Ready - Finding and working with agents
+- **Common Workflows**: ✅ Ready - Real estate workflow patterns
+- **API Status Info**: ✅ Ready - Current system status (this resource)
+
+## System Configuration
+- **Log Level**: {self.settings.log_level}
+- **Rate Limiting**: {self.settings.api_rate_limit_per_minute} requests/minute
+- **Cache Enabled**: {'Yes' if self.settings.cache_enabled else 'No'}
+- **Cache TTL**: {self.settings.cache_ttl_seconds} seconds
+
+## Data Sources
+- **Primary**: Bridge Interactive RESO Web API
+- **MLS Coverage**: UNLOCK MLS real estate data
+- **Data Standard**: RESO Data Dictionary 2.0 compliant
+- **Update Frequency**: Real-time via API calls
+
+## Support Information
+- **MCP Version**: Using mcp.server framework
+- **Transport**: stdio (compatible with Claude Desktop)
+- **Error Handling**: Graceful degradation with user-friendly messages
+- **Validation**: Input sanitization and natural language parsing
+
+## Usage Statistics
+- **Server Status**: Running and accepting requests
+- **Authentication**: Valid token {'available' if token else 'unavailable'}
+- **Last Health Check**: {self._get_current_timestamp()}
+
+## Troubleshooting
+If you encounter issues:
+1. Check environment variables are properly configured
+2. Verify Bridge Interactive API credentials
+3. Ensure network connectivity to api.bridgedataoutput.com
+4. Check log files for detailed error information
+
+For technical support, refer to the project documentation or contact the development team.
+"""
+            
+        except Exception as e:
+            status_content = f"""# API Status & System Information
+
+## ⚠️ System Status: Error
+
+**Error Details**: {str(e)}
+
+## Troubleshooting Steps
+1. Check environment configuration (.env file)
+2. Verify Bridge Interactive API credentials
+3. Ensure network connectivity
+4. Check server logs for detailed error information
+
+## Available Tools (May be Limited)
+- **search_properties**: ⚠️ May be limited due to authentication issues
+- **get_property_details**: ⚠️ May be limited due to authentication issues  
+- **analyze_market**: ⚠️ May be limited due to authentication issues
+- **find_agent**: ⚠️ May be limited due to authentication issues
+
+## Available Resources (Always Available)
+- **Property Search Examples**: ✅ Ready
+- **Property Types Reference**: ✅ Ready
+- **Market Analysis Guide**: ✅ Ready
+- **Agent Search Guide**: ✅ Ready
+- **Common Workflows**: ✅ Ready
+
+Please resolve authentication issues to access full functionality.
+"""
+        
+        return status_content
+    
+    def _get_guided_search_prompts(self) -> str:
+        """Get guided property search prompts."""
+        return """# Guided Property Search Workflows
+
+## Quick Start Property Search
+
+### Step 1: Define Your Search Criteria
+**Choose your approach:**
+
+#### For Natural Language Search:
+```
+Use search_properties with a natural language query:
+- "3 bedroom house under $500k in Austin TX"
+- "Condo with pool downtown Dallas under $400k"  
+- "Single family home over 2000 sqft in Houston"
+```
+
+#### For Structured Search:
+```
+Use search_properties with specific filters:
+{
+  "filters": {
+    "city": "Austin",
+    "state": "TX", 
+    "min_bedrooms": 3,
+    "max_price": 500000,
+    "property_type": "single_family"
+  },
+  "limit": 25
+}
+```
+
+### Step 2: Review Initial Results
+- Examine the property summaries
+- Note listing IDs for properties of interest
+- Adjust search criteria if needed
+
+### Step 3: Get Detailed Information
+```
+For each property of interest, use get_property_details:
+{
+  "listing_id": "LISTING_ID_FROM_SEARCH"
+}
+```
+
+## Guided Search Scenarios
+
+### Scenario 1: First-Time Home Buyer
+**Goal**: Find affordable starter homes
+
+**Step 1**: Start broad
+```
+Query: "houses under $300k with 2+ bedrooms"
+```
+
+**Step 2**: Refine by location
+```
+Query: "houses under $300k with 2+ bedrooms in [your city]"
+```
+
+**Step 3**: Add specific requirements
+```
+Filters: {
+  "city": "Your City",
+  "state": "Your State", 
+  "max_price": 300000,
+  "min_bedrooms": 2,
+  "property_type": "single_family"
+}
+```
+
+**Step 4**: Analyze the market
+```
+Use analyze_market for your target area to understand:
+- Average prices in your budget
+- Number of available properties
+- Market trends (rising/falling prices)
+```
+
+### Scenario 2: Investment Property Search
+**Goal**: Find rental properties with good cash flow
+
+**Step 1**: Research markets
+```
+Use analyze_market for different cities:
+{
+  "city": "Austin",
+  "state": "TX",
+  "property_type": "single_family"
+}
+```
+
+**Step 2**: Filter by investment criteria
+```
+Search for properties with:
+- Lower price per square foot
+- Good rental neighborhoods
+- Multiple bedrooms for higher rent
+```
+
+**Step 3**: Calculate returns
+```
+For each property:
+1. Get detailed information
+2. Research rental rates in the area
+3. Calculate cap rate and cash flow
+```
+
+### Scenario 3: Luxury Home Search
+**Goal**: Find high-end properties with specific features
+
+**Step 1**: Set premium criteria
+```
+Filters: {
+  "min_price": 1000000,
+  "min_sqft": 3000,
+  "property_type": "single_family"
+}
+```
+
+**Step 2**: Add luxury features
+```
+Query: "luxury home over $1M with pool and waterfront"
+```
+
+**Step 3**: Research exclusive areas
+```
+Focus search on high-end neighborhoods and gated communities
+```
+
+## Advanced Search Techniques
+
+### Comparative Shopping
+1. **Search multiple areas**:
+   - Compare similar properties in different neighborhoods
+   - Use consistent criteria across searches
+
+2. **Price range exploration**:
+   - Search at different price points
+   - Understand what features change with price
+
+3. **Market timing**:
+   - Monitor the same search over time
+   - Track price changes and new listings
+
+### Search Optimization Tips
+
+#### Effective Natural Language Queries
+- **Be specific**: Include location, price, and key features
+- **Use common terms**: "bedroom" not "BR", "bathroom" not "BA"
+- **Include budget**: "under $500k" or "between $300k and $400k"
+- **Mention must-haves**: "with garage", "with pool", "near schools"
+
+#### Smart Filter Usage
+- **Start broad, then narrow**: Begin with location and price, add features
+- **Use ranges**: min/max for price, bedrooms, square footage
+- **Combine criteria**: Location + price + size + features
+- **Test variations**: Try different property types and price ranges
+
+## Troubleshooting Common Issues
+
+### No Results Found
+1. **Broaden criteria**: Increase price range or reduce requirements
+2. **Check spelling**: Verify city names and state abbreviations
+3. **Try nearby areas**: Expand to surrounding cities or ZIP codes
+4. **Adjust property types**: Include condos, townhouses if searching single family
+
+### Too Many Results
+1. **Add more filters**: Narrow by price, size, or features
+2. **Specify location**: Use specific neighborhoods or ZIP codes
+3. **Increase minimums**: Raise minimum price, bedrooms, or square footage
+4. **Focus search**: Target specific property types or features
+
+### Outdated Information
+1. **Check listing dates**: Focus on recently listed properties
+2. **Verify status**: Use status filters for "active" listings only
+3. **Cross-reference**: Confirm details with agent or listing source
+
+## Next Steps After Search
+
+### Property Evaluation
+1. **Get detailed information** for top candidates
+2. **Research neighborhood** and local amenities
+3. **Check comparable sales** in the area
+4. **Schedule showings** with listing agents
+
+### Market Analysis
+1. **Understand pricing trends** in target areas
+2. **Compare inventory levels** across different locations
+3. **Assess market conditions** for negotiation strategy
+
+### Agent Connection
+1. **Find local agents** using find_agent tool
+2. **Research agent specializations** and experience
+3. **Prepare questions** about market and properties
+"""
+    
+    def _get_guided_analysis_prompts(self) -> str:
+        """Get guided market analysis prompts."""
+        return """# Guided Market Analysis Workflows
+
+## Quick Start Market Analysis
+
+### Step 1: Choose Your Analysis Scope
+**Define your target area:**
+
+#### City-Wide Analysis:
+```
+Use analyze_market with city and state:
+{
+  "city": "Austin",
+  "state": "TX",
+  "property_type": "residential",
+  "days_back": 90
+}
+```
+
+#### ZIP Code Analysis:
+```
+Use analyze_market with specific ZIP:
+{
+  "zip_code": "78701",
+  "property_type": "single_family",
+  "days_back": 90
+}
+```
+
+### Step 2: Interpret the Results
+- **Active Listings**: Current market inventory
+- **Recently Sold**: Recent transaction data
+- **Price Trends**: Market direction indicators
+- **Inventory Levels**: Supply and demand balance
+
+### Step 3: Compare Multiple Areas
+Run the same analysis for different locations to compare:
+- Average prices and price ranges
+- Market activity levels
+- Inventory and demand patterns
+
+## Guided Analysis Scenarios
+
+### Scenario 1: Home Buyer Market Research
+**Goal**: Understand if it's a good time to buy
+
+**Step 1**: Analyze your target area
+```
+{
+  "city": "Your Target City",
+  "state": "State",
+  "property_type": "residential",
+  "days_back": 90
+}
+```
+
+**Questions to answer:**
+- Are prices rising or stable?
+- How much inventory is available?
+- What's the average time on market?
+
+**Step 2**: Compare property types
+```
+Run separate analyses for:
+- single_family
+- condo  
+- townhouse
+```
+
+**Step 3**: Assess market conditions
+- **Rising prices + Low inventory** = Seller's market (act quickly)
+- **Stable prices + Moderate inventory** = Balanced market
+- **Declining prices + High inventory** = Buyer's market (negotiate)
+
+### Scenario 2: Seller Market Timing
+**Goal**: Determine optimal listing strategy
+
+**Step 1**: Current market analysis
+```
+{
+  "city": "Your City",
+  "state": "Your State",
+  "property_type": "single_family",
+  "days_back": 60
+}
+```
+
+**Step 2**: Compare recent periods
+```
+Run analyses for different time periods:
+- Last 30 days
+- Last 60 days  
+- Last 90 days
+```
+
+**Step 3**: Pricing strategy
+- **Rising market**: Price competitively or slightly above
+- **Stable market**: Price at market value
+- **Declining market**: Price below market for quick sale
+
+### Scenario 3: Investment Market Selection
+**Goal**: Find the best markets for investment
+
+**Step 1**: Multi-market comparison
+```
+Compare multiple cities:
+- Austin, TX
+- Dallas, TX
+- Houston, TX
+- San Antonio, TX
+```
+
+**Step 2**: Property type analysis
+```
+For each market, analyze:
+- single_family (traditional rentals)
+- multi_family (apartment buildings)
+- condo (urban rentals)
+```
+
+**Step 3**: Investment metrics
+Calculate for each market:
+- Average price per square foot
+- Rental yield potential
+- Market stability indicators
+
+## Advanced Analysis Techniques
+
+### Seasonal Trend Analysis
+**Compare different time periods:**
+
+#### Winter vs Summer Markets
+```
+Winter analysis (Dec-Feb):
+{"days_back": 90, "city": "Target City"}
+
+Summer analysis (Jun-Aug):  
+{"days_back": 90, "city": "Target City"}
+```
+
+#### Year-over-year comparison
+- Current year: days_back: 90
+- Previous year: Historical data analysis
+
+### Micro-Market Analysis
+**Neighborhood-level insights:**
+
+#### ZIP Code Comparison
+```
+Analyze each ZIP code separately:
+- 78701 (Downtown Austin)
+- 78704 (South Austin)  
+- 78759 (North Austin)
+```
+
+#### Property Type Segmentation
+```
+Compare segments within same area:
+- Luxury homes ($1M+)
+- Mid-range homes ($300k-$1M)
+- Starter homes (Under $300k)
+```
+
+### Market Cycle Analysis
+**Understanding market phases:**
+
+#### Expansion Phase Indicators
+- Rising prices
+- Increasing sales volume
+- Low inventory
+- Quick sales
+
+#### Peak Phase Indicators
+- Highest prices
+- Maximum activity
+- Lowest inventory
+- Bidding wars
+
+#### Contraction Phase Indicators
+- Declining prices
+- Reduced activity
+- Increasing inventory
+- Longer time on market
+
+#### Recovery Phase Indicators
+- Stabilizing prices
+- Improving activity
+- Balanced inventory
+- Normal transaction times
+
+## Market Analysis Interpretation Guide
+
+### Price Trend Analysis
+**Rising Trends (5%+ increase):**
+- Strong demand
+- Limited supply
+- Economic growth
+- Population increase
+
+**Stable Trends (±5%):**
+- Balanced market
+- Steady demand
+- Normal inventory
+- Economic stability
+
+**Declining Trends (5%+ decrease):**
+- Weak demand
+- Excess supply
+- Economic concerns
+- Market correction
+
+### Inventory Level Analysis
+**Low Inventory (<20 properties):**
+- Seller's market
+- Quick sales expected
+- Potential for bidding wars
+- Higher prices likely
+
+**Moderate Inventory (20-50 properties):**
+- Balanced market
+- Normal negotiation
+- Standard timelines
+- Fair pricing
+
+**High Inventory (>50 properties):**
+- Buyer's market
+- Longer time on market
+- More negotiating power
+- Potential price reductions
+
+## Actionable Insights
+
+### For Buyers
+**Rising Market Strategy:**
+- Act quickly on desired properties
+- Be prepared to offer asking price
+- Consider pre-approval for faster offers
+- Focus on properties with good value
+
+**Stable Market Strategy:**
+- Take time to evaluate options
+- Negotiate based on property condition
+- Standard due diligence timelines
+- Focus on long-term value
+
+**Declining Market Strategy:**
+- Take advantage of inventory
+- Negotiate aggressively
+- Request seller concessions
+- Consider value opportunities
+
+### For Sellers
+**Rising Market Strategy:**
+- Price competitively
+- Expect quick offers
+- Minimal staging required
+- Consider multiple offers
+
+**Stable Market Strategy:**
+- Price at market value
+- Professional presentation
+- Standard marketing time
+- Be prepared to negotiate
+
+**Declining Market Strategy:**
+- Price below market
+- Extensive staging/improvements
+- Aggressive marketing
+- Consider incentives
+
+### For Investors
+**Market Selection Criteria:**
+- Population growth trends
+- Economic diversification
+- Job market strength
+- Infrastructure development
+
+**Timing Considerations:**
+- Buy in declining/stable markets
+- Sell in rising/peak markets
+- Hold through cycles
+- Focus on cash flow
+
+## Analysis Validation
+
+### Cross-Reference Data
+1. **Compare with other sources**: Verify trends with local reports
+2. **Check recent sales**: Confirm with comparable sales data
+3. **Consult local experts**: Speak with local agents and professionals
+
+### Update Frequency
+- **Weekly**: For active buying/selling decisions
+- **Monthly**: For market monitoring
+- **Quarterly**: For investment planning
+- **Annually**: For long-term strategy
+
+### Quality Checks
+- Ensure adequate sample size (10+ properties)
+- Verify data recency and relevance
+- Consider seasonal adjustments
+- Account for local market factors
+"""
+    
+    def _get_current_timestamp(self) -> str:
+        """Get current timestamp for status reporting."""
+        from datetime import datetime
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
 
     async def run(self):
         """Run the MCP server."""

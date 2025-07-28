@@ -606,3 +606,48 @@ class TestMCPResources:
         assert "Understanding Market Data" in content
         assert "Price Trends" in content
         assert "For Buyers" in content
+    
+    async def test_get_agent_search_guide_resource(self, server):
+        """Test agent search guide resource."""
+        content = server._get_agent_search_guide()
+        
+        assert "Agent Search Guide" in content
+        assert "Finding Real Estate Agents" in content
+        assert "Search by Name" in content
+        assert "Agent Selection Criteria" in content
+    
+    async def test_get_common_workflows_resource(self, server):
+        """Test common workflows resource."""
+        content = server._get_common_workflows()
+        
+        assert "Common Real Estate Workflows" in content
+        assert "Buyer Workflows" in content
+        assert "Seller Workflows" in content
+        assert "Investment Property Search" in content
+    
+    async def test_get_guided_search_prompts_resource(self, server):
+        """Test guided search prompts resource."""
+        content = server._get_guided_search_prompts()
+        
+        assert "Guided Property Search Workflows" in content
+        assert "Quick Start Property Search" in content
+        assert "Natural Language Search" in content
+        assert "Troubleshooting Common Issues" in content
+    
+    async def test_get_guided_analysis_prompts_resource(self, server):
+        """Test guided analysis prompts resource."""
+        content = server._get_guided_analysis_prompts()
+        
+        assert "Guided Market Analysis Workflows" in content
+        assert "Quick Start Market Analysis" in content
+        assert "Market Analysis Interpretation Guide" in content
+        assert "For Investors" in content
+    
+    async def test_get_api_status_info_resource(self, server):
+        """Test API status info resource."""
+        content = await server._get_api_status_info()
+        
+        assert "API Status & System Information" in content
+        assert "Authentication Status" in content
+        assert "Available Tools" in content
+        assert "System Configuration" in content
