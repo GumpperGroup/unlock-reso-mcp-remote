@@ -162,6 +162,7 @@ Please provide feedback through:
 
 ---
 
-*Last updated: January 2024*  
+*Last updated: July 2025*
+*Created by: David Gumpper*  
 *Documentation version: 1.0.0*  
 *Server version: 1.0.0*

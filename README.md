@@ -26,6 +26,9 @@ A Model Context Protocol (MCP) server that provides standardized access to UNLOC
 - **Market Insights**: Educational resources for understanding market data
 - **API Status Monitoring**: Real-time system health and connectivity information
 
+**MCP Server Documentation**
+- /Users/davidgumpper/Documents/projects/unlock-reso-mcp/docs/README.md
+
 ## Quick Start
 
 ### Prerequisites
