@@ -2,7 +2,7 @@
 
 ## Overview
 
-The UNLOCK MLS MCP Server provides standardized access to real estate data through Bridge Interactive's RESO Web API. Built using the Model Context Protocol (MCP), it enables AI applications like Claude to query, analyze, and interact with MLS data in a standardized way.
+The UNLOCK MLS RESO Reference MCP Server provides standardized access to real estate data through Bridge Interactive's RESO Web API. Built using the Model Context Protocol (MCP), it enables AI applications like Claude to query, analyze, and interact with MLS data in a standardized way.
 
 ## System Architecture
 
