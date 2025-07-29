@@ -1,4 +1,4 @@
-# UNLOCK MLS MCP Server
+# UNLOCK MLS RESO Reference MCP Server
 
 A Model Context Protocol (MCP) server that provides standardized access to UNLOCK MLS real estate data through Bridge Interactive's RESO Web API. This server enables AI applications like Claude to query, analyze, and interact with real estate listings data.
 
