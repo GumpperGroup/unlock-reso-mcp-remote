@@ -2,8 +2,7 @@
 """MCP server implementation for UNLOCK MLS RESO data access."""
 
 import asyncio
-import logging
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, Any, Optional
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -86,6 +85,22 @@ class UnlockMlsServer:
                                         "enum": ["active", "under_contract", "pending", "sold", "closed",
                                                 "expired", "withdrawn", "cancelled", "hold"],
                                         "description": "Property status"
+                                    },
+                                    "neighborhood": {
+                                        "type": "string",
+                                        "description": "Neighborhood, subdivision, or area name"
+                                    },
+                                    "subdivision": {
+                                        "type": "string", 
+                                        "description": "Specific subdivision name"
+                                    },
+                                    "mls_area_major": {
+                                        "type": "string",
+                                        "description": "Major MLS marketing area"
+                                    },
+                                    "mls_area_minor": {
+                                        "type": "string",
+                                        "description": "Minor/sub MLS marketing area"
                                     }
                                 }
                             },
@@ -166,6 +181,39 @@ class UnlockMlsServer:
                         },
                         "minProperties": 1
                     }
+                ),
+                Tool(
+                    name="analyze_market_by_address",
+                    description="Analyze market trends around a specific property address",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "address": {
+                                "type": "string",
+                                "description": "Full property address (e.g., '8604 Dorotha Ct, Austin, TX 78759')"
+                            },
+                            "radius_miles": {
+                                "type": "number",
+                                "description": "Analysis radius around the address in miles",
+                                "default": 1.0,
+                                "minimum": 0.1,
+                                "maximum": 5.0
+                            },
+                            "property_type": {
+                                "type": "string",
+                                "enum": ["residential", "condo", "townhouse", "single_family"],
+                                "description": "Property type for analysis"
+                            },
+                            "days_back": {
+                                "type": "integer",
+                                "default": 90,
+                                "minimum": 30,
+                                "maximum": 365,
+                                "description": "Number of days to analyze"
+                            }
+                        },
+                        "required": ["address"]
+                    }
                 )
             ]
             
@@ -181,6 +229,8 @@ class UnlockMlsServer:
                     return await self._get_property_details(arguments)
                 elif name == "analyze_market":
                     return await self._analyze_market(arguments)
+                elif name == "analyze_market_by_address":
+                    return await self._analyze_market_by_address(arguments)
                 elif name == "find_agent":
                     return await self._find_agent(arguments)
                 else:
@@ -293,17 +343,91 @@ class UnlockMlsServer:
             if filters:
                 filters = self.query_validator.validate_search_filters(filters)
             
+            # Handle neighborhood field mapping
+            if "neighborhood" in filters:
+                # Try SubdivisionName as the primary field for neighborhoods
+                filters["SubdivisionName"] = filters.pop("neighborhood")
+            
+            # Map specific neighborhood fields to RESO field names
+            if "subdivision" in filters:
+                filters["SubdivisionName"] = filters.pop("subdivision")
+            
+            if "mls_area_major" in filters:
+                filters["MLSAreaMajor"] = filters.pop("mls_area_major")
+            
+            if "mls_area_minor" in filters:
+                filters["MLSAreaMinor"] = filters.pop("mls_area_minor")
+            
             logger.info("Searching properties with filters: %s", filters)
             
-            # Search properties
+            # Search properties with fallback logic for neighborhoods
             properties = await self.reso_client.query_properties(
                 filters=filters,
                 limit=limit
             )
             
+            # If no results and we have a neighborhood search, try fallback strategies
+            original_neighborhood = None
+            if not properties and any(key in filters for key in ['SubdivisionName', 'MLSAreaMajor', 'MLSAreaMinor']):
+                # Store original neighborhood value for fallback message
+                original_neighborhood = filters.get('SubdivisionName') or filters.get('MLSAreaMajor') or filters.get('MLSAreaMinor')
+                
+                # Try fallback: search without neighborhood to see if other criteria work
+                fallback_filters = {k: v for k, v in filters.items() 
+                                  if k not in ['SubdivisionName', 'MLSAreaMajor', 'MLSAreaMinor']}
+                
+                if fallback_filters:  # Only try fallback if we have other criteria
+                    fallback_properties = await self.reso_client.query_properties(
+                        filters=fallback_filters,
+                        limit=min(limit, 10)  # Limit fallback results
+                    )
+                    
+                    if fallback_properties:
+                        # Map fallback properties to check if any have subdivision data
+                        mapped_fallback = self.data_mapper.map_properties(fallback_properties)
+                        
+                        # Check if any fallback results have subdivision names
+                        available_subdivisions = set()
+                        for prop in mapped_fallback:
+                            if prop.get('subdivision'):
+                                available_subdivisions.add(prop['subdivision'])
+                        
+                        # Create helpful error message with suggestions
+                        error_msg = f"No properties found in '{original_neighborhood}' neighborhood"
+                        if fallback_properties:
+                            city = filters.get('city', 'the area')
+                            state = filters.get('state', '')
+                            location = f"{city}, {state}".strip(', ')
+                            error_msg += f", but found {len(fallback_properties)} properties in {location}"
+                            
+                            if available_subdivisions:
+                                subdivisions_list = sorted(list(available_subdivisions))[:5]  # Show max 5
+                                error_msg += f".\n\n**Available neighborhoods/subdivisions in this area:**\n"
+                                for sub in subdivisions_list:
+                                    error_msg += f"- {sub}\n"
+                                if len(available_subdivisions) > 5:
+                                    error_msg += f"- ... and {len(available_subdivisions) - 5} more\n"
+                            else:
+                                error_msg += ".\n\n**Note:** Properties in this area may not have specific neighborhood/subdivision data in the MLS."
+                        
+                        error_msg += f"\n\n**Suggestions:**\n"
+                        error_msg += f"- Try searching for '{original_neighborhood}' without quotes\n"
+                        error_msg += f"- Check if the neighborhood name is spelled correctly\n"
+                        error_msg += f"- Try searching by street name if you know specific streets\n"
+                        error_msg += f"- Use broader area search (city/ZIP code only)\n"
+                        
+                        return [TextContent(type="text", text=error_msg)]
+            
             if not properties:
-                return [
-                    TextContent(type="text", text="No properties found matching your criteria.")]
+                # Standard no results message
+                message = "No properties found matching your criteria."
+                if original_neighborhood:
+                    city = filters.get('city', '')
+                    state = filters.get('state', '')
+                    location = f" in {city}, {state}".strip(', ') if city or state else ""
+                    message = f"No properties found for '{original_neighborhood}'{location}. Try checking the spelling or using a broader search."
+                
+                return [TextContent(type="text", text=message)]
             
             # Map properties to standardized format
             try:
@@ -666,6 +790,192 @@ class UnlockMlsServer:
             return [
                 TextContent(type="text", text=error_message)]
 
+    async def _analyze_market_by_address(self, arguments: Dict[str, Any]) -> list[TextContent]:
+        """Analyze market trends around a specific property address."""
+        try:
+            address = arguments["address"]
+            radius_miles = arguments.get("radius_miles", 1.0)
+            property_type = arguments.get("property_type")
+            days_back = arguments.get("days_back", 90)
+            
+            logger.info("Analyzing market by address: %s within %f miles", address, radius_miles)
+            
+            # Step 1: Find the target property by address
+            target_property = await self.reso_client.find_property_by_address(address)
+            
+            if not target_property:
+                # Fallback: Extract ZIP code and do ZIP-based analysis
+                zip_code = self._extract_zip_from_address(address)
+                if zip_code:
+                    logger.info("Property not found by address, falling back to ZIP analysis: %s", zip_code)
+                    return await self._analyze_market({
+                        "zip_code": zip_code,
+                        "property_type": property_type,
+                        "days_back": days_back
+                    })
+                else:
+                    return [TextContent(type="text", text=f"Could not find property at address '{address}' or extract location for analysis.")]
+            
+            # Step 2: Extract coordinates from target property
+            latitude = target_property.get("Latitude")
+            longitude = target_property.get("Longitude")
+            
+            # Map target property for display
+            target_mapped = self.data_mapper.map_property(target_property)
+            
+            if latitude and longitude:
+                # Step 3: Use coordinate-based analysis around target property
+                logger.info("Using coordinates from target property: %f, %f", latitude, longitude)
+                
+                # Build coordinate-based filters
+                coordinate_filter = {
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "radius_miles": radius_miles
+                }
+                
+                if property_type:
+                    coordinate_filter["property_type"] = property_type
+                
+                # Get active listings around the address
+                active_properties = await self.reso_client.query_properties_by_coordinates(
+                    filters={**coordinate_filter, "status": "active"},
+                    limit=1000
+                )
+                
+                # Get recently sold properties around the address
+                sold_properties = await self.reso_client.query_properties_by_coordinates(
+                    filters={**coordinate_filter, "status": "sold"},
+                    limit=1000
+                )
+                
+                # Map properties
+                active_mapped = self.data_mapper.map_properties(active_properties)
+                sold_mapped = self.data_mapper.map_properties(sold_properties)
+                
+                # Generate analysis with target property context
+                result_text = f"# Market Analysis - Around {address}\n\n"
+                result_text += f"**Target Address**: {address}\n"
+                result_text += f"**Analysis Radius**: {radius_miles} miles around target property\n"
+                if property_type:
+                    result_text += f"**Property Type**: {property_type.replace('_', ' ').title()}\n"
+                result_text += f"**Analysis Period**: Last {days_back} days\n\n"
+                
+                # Add target property details
+                result_text += "## Target Property Details\n"
+                result_text += f"- **Status**: {target_mapped.get('status', 'N/A').replace('_', ' ').title()}\n"
+                if target_mapped.get("list_price"):
+                    result_text += f"- **List Price**: ${target_mapped['list_price']:,}\n"
+                if target_mapped.get("sold_price"):
+                    result_text += f"- **Sold Price**: ${target_mapped['sold_price']:,}\n"
+                result_text += f"- **Property Type**: {target_mapped.get('property_type', 'N/A').replace('_', ' ').title()}\n"
+                if target_mapped.get("bedrooms"):
+                    result_text += f"- **Bedrooms**: {target_mapped['bedrooms']}\n"
+                if target_mapped.get("bathrooms"):
+                    result_text += f"- **Bathrooms**: {target_mapped['bathrooms']}\n"
+                if target_mapped.get("square_feet"):
+                    result_text += f"- **Square Feet**: {target_mapped['square_feet']:,}\n"
+                if target_mapped.get("year_built"):
+                    result_text += f"- **Year Built**: {target_mapped['year_built']}\n"
+                
+                result_text += f"\n## Market Analysis Within {radius_miles} Miles\n"
+                
+                # Active listings analysis (reuse existing logic from _analyze_market)
+                result_text += f"### Active Listings\n"
+                result_text += f"- **Total Active**: {len(active_mapped)} properties\n"
+                
+                if active_mapped:
+                    prices = [p["list_price"] for p in active_mapped if p.get("list_price")]
+                    if prices:
+                        result_text += f"- **Average Price**: ${sum(prices) // len(prices):,}\n"
+                        result_text += f"- **Median Price**: ${sorted(prices)[len(prices)//2]:,}\n"
+                        result_text += f"- **Price Range**: ${min(prices):,} - ${max(prices):,}\n"
+                    
+                    sqft_data = [(p["square_feet"], p["list_price"]) for p in active_mapped 
+                                if p.get("square_feet") and p.get("list_price")]
+                    if sqft_data:
+                        avg_price_per_sqft = sum(price/sqft for sqft, price in sqft_data) / len(sqft_data)
+                        result_text += f"- **Average Price/SqFt**: ${avg_price_per_sqft:.2f}\n"
+                
+                # Recently sold analysis
+                result_text += f"\n### Recently Sold Properties\n"
+                result_text += f"- **Total Sold**: {len(sold_mapped)} properties\n"
+                
+                if sold_mapped:
+                    sold_prices = [p["sold_price"] for p in sold_mapped if p.get("sold_price")]
+                    if sold_prices:
+                        result_text += f"- **Average Sold Price**: ${sum(sold_prices) // len(sold_prices):,}\n"
+                        result_text += f"- **Median Sold Price**: ${sorted(sold_prices)[len(sold_prices)//2]:,}\n"
+                        result_text += f"- **Sold Price Range**: ${min(sold_prices):,} - ${max(sold_prices):,}\n"
+                
+                # Market insights
+                result_text += f"\n### Market Insights\n"
+                if active_mapped and sold_mapped:
+                    active_avg = sum(p["list_price"] for p in active_mapped if p.get("list_price")) / len([p for p in active_mapped if p.get("list_price")])
+                    sold_avg = sum(p["sold_price"] for p in sold_mapped if p.get("sold_price")) / len([p for p in sold_mapped if p.get("sold_price")])
+                    
+                    if active_avg and sold_avg:
+                        price_trend = ((active_avg - sold_avg) / sold_avg) * 100
+                        if price_trend > 5:
+                            result_text += f"- **Price Trend**: Rising (active listings {price_trend:.1f}% higher than recent sales)\n"
+                        elif price_trend < -5:
+                            result_text += f"- **Price Trend**: Declining (active listings {abs(price_trend):.1f}% lower than recent sales)\n"
+                        else:
+                            result_text += f"- **Price Trend**: Stable (active listings within 5% of recent sales)\n"
+                
+                result_text += f"- **Location**: Centered on {address}\n"
+                result_text += f"- **Search Area**: {radius_miles}-mile radius covers approximately {3.14159 * radius_miles * radius_miles:.1f} square miles\n"
+                
+                return [TextContent(type="text", text=result_text)]
+                
+            else:
+                # Fallback to ZIP-based analysis
+                zip_code = target_property.get("PostalCode")
+                if zip_code:
+                    logger.info("No coordinates available, falling back to ZIP analysis: %s", zip_code)
+                    result = await self._analyze_market({
+                        "zip_code": zip_code,
+                        "property_type": property_type,
+                        "days_back": days_back
+                    })
+                    
+                    # Prepend target property information
+                    target_info = f"# Market Analysis - Around {address}\n\n"
+                    target_info += f"**Target Address**: {address}\n"
+                    target_info += f"**Fallback Analysis**: Using ZIP code {zip_code} (coordinates not available)\n\n"
+                    
+                    # Modify the result to include target context
+                    original_text = result[0].text
+                    modified_text = target_info + original_text.replace("# Market Analysis -", "## ZIP Code Analysis -")
+                    
+                    return [TextContent(type="text", text=modified_text)]
+                else:
+                    return [TextContent(type="text", text=f"Found property at '{address}' but could not determine location for market analysis.")]
+                    
+        except ValidationError:
+            raise
+        except Exception as e:
+            logger.error("Address market analysis error: %s", str(e))
+            return [TextContent(type="text", text=f"Error analyzing market by address: {str(e)}")]
+
+    def _extract_zip_from_address(self, address: str) -> Optional[str]:
+        """Extract ZIP code from address string."""
+        import re
+        
+        # Look for 5-digit ZIP codes at the end of the address
+        zip_pattern = r'\b(\d{5})\b'
+        match = re.search(zip_pattern, address)
+        if match:
+            return match.group(1)
+        
+        # Look for ZIP+4 format and extract just the 5-digit part
+        zip_plus4_pattern = r'\b(\d{5})-\d{4}\b'
+        match = re.search(zip_plus4_pattern, address)
+        if match:
+            return match.group(1)
+        
+        return None
+
     
     async def _find_agent(self, arguments: Dict[str, Any]) -> list[TextContent]:
         """Find real estate agents or members."""
@@ -807,11 +1117,40 @@ Use natural, conversational language to search for properties:
 - "recently built condo under $300k near downtown with 2+ bedrooms"
 - "luxury home over $1M with waterfront and 4+ bedrooms"
 
+### Neighborhood/Subdivision Searches
+- "homes in Austin Woods neighborhood"
+- "properties in Barton Hills Austin TX"
+- "houses in Circle C Ranch subdivision under $700k"
+- "3 bedroom in Westlake Hills area"
+- "condos in the Domain neighborhood"
+- "properties in Steiner Ranch community"
+- "houses in Mueller development"
+- "homes in the Bouldin Creek area"
+
+**Enhanced Neighborhood Search Features:**
+- **Flexible Matching**: Searches use partial name matching, so "Austin Woods" will find "Austin Woods Subdivision"
+- **Smart Suggestions**: If an exact neighborhood isn't found, you'll get suggestions of available neighborhoods
+- **Multiple Fields**: Searches across SubdivisionName, MLSAreaMajor, and MLSAreaMinor for comprehensive coverage
+- **Fallback Logic**: Automatically provides alternative results when specific neighborhoods have no listings
+
+### Address-Based Market Analysis
+- "analyze market for 8604 Dorotha Ct, Austin, TX 78759"
+- "market analysis around 123 Main Street, Dallas TX 75201"
+- "what's the market like near 456 Oak Ave, Houston, TX 77001"
+- "market trends within 2 miles of 789 Pine St, San Antonio TX 78205"
+
+**Address-Based Analysis Features:**
+- **Radius Analysis**: Analyze market around specific addresses within 0.1 to 5 miles
+- **Property Context**: Shows target property details alongside market analysis
+- **Coordinate-Based**: Uses exact coordinates for precise radius searches
+- **Smart Fallbacks**: Falls back to ZIP code analysis if address not found or coordinates unavailable
+
 ## Search Filters
 
 You can also use specific filters:
 
 - **Location**: city, state, zip_code
+- **Neighborhood**: neighborhood, subdivision, mls_area_major, mls_area_minor
 - **Price**: min_price, max_price
 - **Size**: min_bedrooms, max_bedrooms, min_bathrooms, max_bathrooms
 - **Square Footage**: min_sqft, max_sqft
@@ -825,6 +1164,8 @@ You can also use specific filters:
 3. **Combine criteria**: Mix location, price, and features for targeted results
 4. **Check spelling**: Ensure city and state names are spelled correctly
 5. **Try variations**: If no results, try broader criteria or different property types
+6. **Neighborhood searches**: Use partial names for neighborhoods - the system will find close matches
+7. **No results?**: The system will suggest available neighborhoods when your search doesn't match exactly
 """
     
     def _get_property_types_reference(self) -> str:
@@ -1274,7 +1615,7 @@ You can also use specific filters:
 
 ## Usage Statistics
 - **Server Status**: Running and accepting requests
-- **Authentication**: Valid token {'available' if token else 'unavailable'}
+- **Authentication**: Valid token {'available' if self.settings.bridge_server_token else 'unavailable'}
 - **Last Health Check**: {self._get_current_timestamp()}
 
 ## Troubleshooting
@@ -1448,6 +1789,41 @@ Query: "luxury home over $1M with pool and waterfront"
 Focus search on high-end neighborhoods and gated communities
 ```
 
+### Scenario 4: Neighborhood-Specific Search
+**Goal**: Find properties in specific neighborhoods or subdivisions
+
+**Step 1**: Use natural language with neighborhood names
+```
+Query: "homes in Austin Woods neighborhood"
+Query: "properties in Barton Hills Austin TX"
+Query: "houses in Circle C Ranch subdivision under $700k"
+```
+
+**Step 2**: Try partial neighborhood names if needed
+```
+Query: "homes in Mueller" (will find Mueller Development)
+Query: "properties in Steiner Ranch" (will find Steiner Ranch Community)
+```
+
+**Step 3**: Use fallback suggestions when no exact matches
+```
+If your neighborhood search returns no results, the system will:
+- Suggest similar neighborhoods with available properties
+- Show you what subdivisions are available in that city
+- Provide alternative search options
+```
+
+**Step 4**: Combine neighborhood with other criteria
+```
+Filters: {
+  "neighborhood": "Austin Woods",
+  "city": "Austin",
+  "state": "TX",
+  "min_bedrooms": 3,
+  "max_price": 600000
+}
+```
+
 ## Advanced Search Techniques
 
 ### Comparative Shopping
@@ -1484,6 +1860,7 @@ Focus search on high-end neighborhoods and gated communities
 2. **Check spelling**: Verify city names and state abbreviations
 3. **Try nearby areas**: Expand to surrounding cities or ZIP codes
 4. **Adjust property types**: Include condos, townhouses if searching single family
+5. **Neighborhood searches**: Try partial neighborhood names or check system suggestions for available subdivisions
 
 ### Too Many Results
 1. **Add more filters**: Narrow by price, size, or features
@@ -1616,7 +1993,39 @@ Run analyses for different time periods:
 - **Stable market**: Price at market value
 - **Declining market**: Price below market for quick sale
 
-### Scenario 3: Investment Market Selection
+### Scenario 3: Address-Based Market Analysis
+**Goal**: Analyze market around a specific property address
+
+**Step 1**: Use address-based analysis
+```
+{
+  "address": "8604 Dorotha Ct, Austin, TX 78759",
+  "radius_miles": 1.0,
+  "property_type": "residential",
+  "days_back": 90
+}
+```
+
+**Step 2**: Review target property details
+- Property status, price, and characteristics
+- Coordinates for radius-based analysis
+
+**Step 3**: Analyze surrounding market
+- Active listings within radius
+- Recent sales activity
+- Price trends and market insights
+
+**Step 4**: Interpret radius-based results
+- **Tight radius (0.1-0.5 miles)**: Immediate neighborhood conditions
+- **Medium radius (0.5-1.5 miles)**: Local area market dynamics  
+- **Wide radius (1.5-5.0 miles)**: Broader market context
+
+**Market Insights:**
+- Compare target property to neighborhood averages
+- Identify pricing opportunities or concerns
+- Understand local market velocity and trends
+
+### Scenario 4: Investment Market Selection
 **Goal**: Find the best markets for investment
 
 **Step 1**: Multi-market comparison

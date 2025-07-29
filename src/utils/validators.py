@@ -160,6 +160,19 @@ class QueryValidator:
         if "listing_id" in filters:
             validated["listing_id"] = self._validate_listing_id(filters["listing_id"])
         
+        # Validate neighborhood/subdivision
+        if "neighborhood" in filters:
+            validated["neighborhood"] = self._validate_neighborhood(filters["neighborhood"])
+        
+        if "subdivision" in filters:
+            validated["subdivision"] = self._validate_neighborhood(filters["subdivision"])
+        
+        if "mls_area_major" in filters:
+            validated["mls_area_major"] = self._validate_neighborhood(filters["mls_area_major"])
+        
+        if "mls_area_minor" in filters:
+            validated["mls_area_minor"] = self._validate_neighborhood(filters["mls_area_minor"])
+        
         logger.debug("Filters validated: %s", validated)
         return validated
     
@@ -205,6 +218,14 @@ class QueryValidator:
         # Extract location (basic city detection)
         location_filters = self._extract_location_info(query)
         filters.update(location_filters)
+        
+        # Extract neighborhood/subdivision information
+        neighborhood_filters = self._extract_neighborhood_info(query)
+        filters.update(neighborhood_filters)
+        
+        # Extract address information
+        address_info = self._extract_address_info(query)
+        filters.update(address_info)
         
         logger.debug("Parsed filters: %s", filters)
         return filters
@@ -387,6 +408,24 @@ class QueryValidator:
         
         return listing_id
     
+    def _validate_neighborhood(self, neighborhood: Any) -> str:
+        """Validate neighborhood/subdivision name."""
+        if not isinstance(neighborhood, str):
+            raise ValidationError("Neighborhood must be a string")
+        
+        neighborhood = neighborhood.strip()
+        if len(neighborhood) < 2:
+            raise ValidationError("Neighborhood name must be at least 2 characters")
+        
+        if len(neighborhood) > 100:
+            raise ValidationError("Neighborhood name too long")
+        
+        # Basic sanitization - allow letters, numbers, spaces, hyphens, apostrophes, periods
+        if not re.match(r"^[a-zA-Z0-9\s\-'\.]+$", neighborhood):
+            raise ValidationError("Neighborhood name contains invalid characters")
+        
+        return neighborhood
+    
     def _extract_price_info(self, query: str) -> Dict[str, int]:
         """Extract price information from natural language query."""
         filters = {}
@@ -414,7 +453,7 @@ class QueryValidator:
         """Extract bedroom information from query."""
         filters = {}
         
-        for pattern, filter_type in self.BEDROOM_PATTERNS:
+        for pattern, _ in self.BEDROOM_PATTERNS:
             match = re.search(pattern, query, re.IGNORECASE)
             if match:
                 bedrooms = int(match.group(1))
@@ -427,7 +466,7 @@ class QueryValidator:
         """Extract bathroom information from query."""
         filters = {}
         
-        for pattern, filter_type in self.BATHROOM_PATTERNS:
+        for pattern, _ in self.BATHROOM_PATTERNS:
             match = re.search(pattern, query, re.IGNORECASE)
             if match:
                 bathrooms = float(match.group(1))
@@ -469,6 +508,10 @@ class QueryValidator:
                 break
         
         # Look for "in [city]" patterns with various formats
+        # But skip if neighborhood indicators are present
+        neighborhood_indicators = ['neighborhood', 'subdivision', 'area', 'community']
+        has_neighborhood = any(indicator in query.lower() for indicator in neighborhood_indicators)
+        
         city_patterns = [
             # "in San Antonio TX" - city followed by state
             rf'\bin\s+([a-zA-Z\s\-\'\.]+?)\s+([A-Z]{{2}})\b',
@@ -490,6 +533,19 @@ class QueryValidator:
                 else:
                     # Pattern without state
                     city_candidate = city_match.group(1).strip()
+                
+                # If we have neighborhood indicators, be more careful about city extraction
+                if has_neighborhood:
+                    # Check if this looks like a city name at the end of the query
+                    # e.g., "in Austin Woods Austin TX" - last Austin is the city
+                    if 'state' in filters:
+                        # Look for city name right before state
+                        city_before_state = re.search(rf'([a-zA-Z\s\-\'\.]+?)\s+{filters["state"]}\b', query, re.IGNORECASE)
+                        if city_before_state:
+                            potential_city = city_before_state.group(1).strip().split()
+                            # Take the last word as city if it's substantial enough
+                            if potential_city and len(potential_city[-1]) >= 3:
+                                city_candidate = potential_city[-1]
                 
                 # Clean up the city name
                 city_words = city_candidate.split()
@@ -522,3 +578,102 @@ class QueryValidator:
                 return int(float(price_str))
         except (ValueError, TypeError):
             return None
+    
+    def _extract_neighborhood_info(self, query: str) -> Dict[str, str]:
+        """Extract neighborhood/subdivision information from query."""
+        filters = {}
+        
+        # Common neighborhood/subdivision indicators
+        neighborhood_indicators = [
+            r'\bin\s+([a-zA-Z0-9\s\-\'\.]+?)\s+(?:neighborhood|subdivision|area|community)\b',
+            r'\bin\s+the\s+([a-zA-Z0-9\s\-\'\.]+?)\s+(?:neighborhood|subdivision|area|community)\b',
+            r'(?:neighborhood|subdivision|area|community)\s+(?:of|called)\s+([a-zA-Z0-9\s\-\'\.]+?)(?:\s+in|\s+near|\s*$)',
+        ]
+        
+        # Check for neighborhood patterns
+        for pattern in neighborhood_indicators:
+            match = re.search(pattern, query, re.IGNORECASE)
+            if match:
+                neighborhood = match.group(1).strip()
+                # Clean up the neighborhood name
+                neighborhood = ' '.join(neighborhood.split())  # Normalize whitespace
+                if len(neighborhood) >= 2 and len(neighborhood) <= 50:
+                    filters['neighborhood'] = neighborhood.title()
+                    break
+        
+        # If no explicit neighborhood indicator, check for patterns like
+        # "in [Neighborhood Name] [City] [State]"
+        if 'neighborhood' not in filters:
+            # First, check if we have a state at the end
+            state_match = re.search(r'\b([A-Z]{2})\s*$', query.upper())
+            if state_match and state_match.group(1) in self.US_STATES:
+                # We have a state, now look for pattern before it
+                # Pattern: "in [neighborhood] [city] [state]"
+                before_state = query[:state_match.start()].strip()
+                
+                # Look for "in [something]" pattern
+                in_pattern = re.search(r'\bin\s+(.+)', before_state, re.IGNORECASE)
+                if in_pattern:
+                    location_part = in_pattern.group(1).strip()
+                    words = location_part.split()
+                    
+                    # If we have 2-4 words, it might be "[neighborhood] [city]"
+                    if 2 <= len(words) <= 5:
+                        # Try to identify the city (usually the last word before state)
+                        # Common patterns: "Austin Woods Austin", "Barton Hills Austin"
+                        last_word = words[-1]
+                        
+                        # Check if the last word could be a city name
+                        if len(last_word) >= 3:
+                            # Assume everything before the last word is the neighborhood
+                            if len(words) > 1:
+                                neighborhood_parts = words[:-1]
+                                neighborhood = ' '.join(neighborhood_parts)
+                                if len(neighborhood) >= 2:
+                                    filters['neighborhood'] = neighborhood.title()
+            
+            # If still no neighborhood found, try simpler patterns
+            if 'neighborhood' not in filters:
+                # Pattern for potential neighborhood names (2-4 words after "in")
+                pattern = r'\bin\s+((?:[A-Za-z]+\s+){1,3}[A-Za-z]+)(?:\s+[A-Za-z]+\s+[A-Z]{2}\b|\s*$)'
+                match = re.search(pattern, query, re.IGNORECASE)
+                
+                if match:
+                    potential_neighborhood = match.group(1).strip()
+                    words = potential_neighborhood.split()
+                    
+                    # Neighborhoods often have 2-4 words
+                    if 2 <= len(words) <= 4:
+                        # Exclude if it looks like a city name pattern
+                        common_city_endings = ['city', 'town', 'ville', 'burg', 'ton', 'ford', 'field', 'port']
+                        last_word_lower = words[-1].lower()
+                        if not any(last_word_lower.endswith(ending) for ending in common_city_endings):
+                            filters['neighborhood'] = potential_neighborhood.title()
+        
+        return filters
+    
+    def _extract_address_info(self, query: str) -> Dict[str, str]:
+        """Extract address information from natural language queries."""
+        filters = {}
+        
+        # Address patterns - look for full addresses
+        address_patterns = [
+            # "market analysis for 8604 Dorotha Ct, Austin, TX 78759"
+            r'(?:for|at|near|around)\s+(.+?(?:\d{5}(?:-\d{4})?|\w{2}\s+\d{5}(?:-\d{4})?))',
+            # "8604 Dorotha Ct, Austin, TX 78759"
+            r'(\d+\s+[A-Za-z\s]+(?:St|Ave|Ct|Dr|Ln|Rd|Way|Blvd|Street|Avenue|Court|Drive|Lane|Road|Boulevard)[,\s]+[A-Za-z\s]+[,\s]+[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?)',
+            # "123 Main Street, Austin TX"
+            r'(\d+\s+[A-Za-z\s]+[,\s]+[A-Za-z\s]+[,\s]+[A-Z]{2})',
+        ]
+        
+        for pattern in address_patterns:
+            match = re.search(pattern, query, re.IGNORECASE)
+            if match:
+                address = match.group(1).strip()
+                # Clean up the address
+                address = re.sub(r'\s+', ' ', address)  # Normalize whitespace
+                address = address.rstrip(',. ')  # Remove trailing punctuation
+                filters['address'] = address
+                break
+        
+        return filters

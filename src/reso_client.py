@@ -276,7 +276,15 @@ class ResoWebApiClient:
         for key, value in kwargs.items():
             if value is not None:
                 if isinstance(value, str):
-                    filters.append(f"{key} eq '{value}'")
+                    # Use flexible matching for subdivision/neighborhood searches
+                    if key in ['SubdivisionName', 'MLSAreaMajor', 'MLSAreaMinor']:
+                        # Use contains for neighborhood searches to be more flexible
+                        filters.append(f"contains({key}, '{value}')")
+                    elif key == 'UnparsedAddress':
+                        # Use case-insensitive matching for addresses
+                        filters.append(f"tolower({key}) eq '{value.lower()}'")
+                    else:
+                        filters.append(f"{key} eq '{value}'")
                 else:
                     filters.append(f"{key} eq {value}")
         
@@ -378,6 +386,112 @@ class ResoWebApiClient:
             if "not found" in str(e).lower():
                 return None
             raise
+    
+    async def query_properties_raw(self, filter_str: str, limit: int = 25) -> List[Dict[str, Any]]:
+        """
+        Query properties using raw OData filter string.
+        
+        Args:
+            filter_str: Raw OData filter expression
+            limit: Maximum number of results
+            
+        Returns:
+            List of property records
+        """
+        logger.info("Querying properties with raw filter: %s", filter_str)
+        
+        query_params = {
+            "filter": filter_str,
+            "top": min(limit, 200),
+            "orderby": "ModificationTimestamp desc"
+        }
+        
+        query_string = self._build_odata_query(**query_params)
+        url = f"{self.endpoints['Property']}?{query_string}"
+        
+        async with aiohttp.ClientSession() as session:
+            data = await self._make_request(session, "GET", url)
+            return data.get("value", [])
+    
+    async def find_property_by_address(self, address: str) -> Optional[Dict[str, Any]]:
+        """
+        Find a specific property by its address.
+        
+        Args:
+            address: Full property address
+            
+        Returns:
+            Property record or None if not found
+        """
+        logger.info("Finding property by address: %s", address)
+        
+        try:
+            # First try with exact match using filter parameter
+            results = await self.query_properties(
+                filters={"UnparsedAddress": address},
+                limit=5  # Get a few results in case of variations
+            )
+            
+            if results:
+                # Return the first match
+                return results[0]
+            else:
+                # Try with case-insensitive raw query as fallback
+                results = await self.query_properties_raw(
+                    filter_str=f"tolower(UnparsedAddress) eq '{address.lower()}'",
+                    limit=5
+                )
+                return results[0] if results else None
+                
+        except Exception as e:
+            logger.error("Error finding property by address: %s", str(e))
+            return None
+    
+    async def query_properties_by_coordinates(self,
+                                            filters: Optional[Dict[str, Any]] = None,
+                                            limit: int = 25) -> List[Dict[str, Any]]:
+        """
+        Query properties around specific coordinates using geo.distance.
+        
+        Args:
+            filters: Filters including latitude, longitude, radius_miles
+            limit: Maximum number of results
+            
+        Returns:
+            List of property records within radius
+        """
+        if not filters or not all(k in filters for k in ['latitude', 'longitude', 'radius_miles']):
+            raise ValueError("latitude, longitude, and radius_miles are required")
+        
+        latitude = filters['latitude']
+        longitude = filters['longitude'] 
+        radius_miles = filters['radius_miles']
+        
+        logger.info("Querying properties around coordinates: %f, %f within %f miles", 
+                   latitude, longitude, radius_miles)
+        
+        # Build geo.distance filter
+        geo_filter = f"geo.distance(Coordinates, POINT({longitude} {latitude})) lt {radius_miles}"
+        
+        # Add other filters
+        additional_filters = []
+        
+        # Status filter
+        status = filters.get('status', 'Active')
+        if status.lower() == 'active':
+            additional_filters.append("StandardStatus eq 'Active'")
+        elif status.lower() == 'sold':
+            additional_filters.append("(StandardStatus eq 'Sold' or StandardStatus eq 'Closed')")
+        
+        # Property type filter
+        if filters.get('property_type'):
+            additional_filters.append(f"PropertyType eq '{filters['property_type']}'")
+        
+        # Combine all filters
+        all_filters = [geo_filter] + additional_filters
+        filter_str = " and ".join(all_filters)
+        
+        return await self.query_properties_raw(filter_str, limit)
     
     async def query_members(self,
                           filters: Optional[Dict[str, Any]] = None,
