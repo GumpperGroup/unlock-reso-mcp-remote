@@ -187,12 +187,12 @@ class ResoDataMapper:
         """
         components = []
         
-        # Street number and name
-        street_number = property_data.get("StreetNumber", "").strip()
-        street_dir_prefix = property_data.get("StreetDirPrefix", "").strip()
-        street_name = property_data.get("StreetName", "").strip()
-        street_suffix = property_data.get("StreetSuffix", "").strip()
-        street_dir_suffix = property_data.get("StreetDirSuffix", "").strip()
+        # Street number and name - safely handle None values
+        street_number = (property_data.get("StreetNumber") or "").strip()
+        street_dir_prefix = (property_data.get("StreetDirPrefix") or "").strip()
+        street_name = (property_data.get("StreetName") or "").strip()
+        street_suffix = (property_data.get("StreetSuffix") or "").strip()
+        street_dir_suffix = (property_data.get("StreetDirSuffix") or "").strip()
         
         # Combine street components
         street_parts = [street_number, street_dir_prefix, street_name, street_suffix, street_dir_suffix]
@@ -201,8 +201,8 @@ class ResoDataMapper:
         if street_address:
             components.append(street_address)
         
-        # Unit number
-        unit_number = property_data.get("UnitNumber", "").strip()
+        # Unit number - safely handle None values
+        unit_number = (property_data.get("UnitNumber") or "").strip()
         if unit_number:
             components.append(f"Unit {unit_number}")
         
@@ -269,8 +269,8 @@ class ResoDataMapper:
         Returns:
             Formatted agent name or None
         """
-        first_name = property_data.get("ListAgentFirstName", "").strip()
-        last_name = property_data.get("ListAgentLastName", "").strip()
+        first_name = (property_data.get("ListAgentFirstName") or "").strip()
+        last_name = (property_data.get("ListAgentLastName") or "").strip()
         
         if first_name and last_name:
             return f"{first_name} {last_name}"

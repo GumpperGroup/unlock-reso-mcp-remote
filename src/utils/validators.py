@@ -18,16 +18,15 @@ class ValidationError(Exception):
 class QueryValidator:
     """Validates and parses user inputs for property searches."""
     
-    # Valid property statuses
+    # Valid property statuses - RESO API values
     VALID_STATUSES = [
-        "active", "under_contract", "pending", "sold", "closed", 
-        "expired", "withdrawn", "cancelled", "hold"
+        "Active", "Under Contract", "Pending", "Sold", "Closed", 
+        "Expired", "Withdrawn", "Cancelled", "Hold"
     ]
     
-    # Valid property types
+    # Valid property types - RESO API values
     VALID_PROPERTY_TYPES = [
-        "residential", "condo", "townhouse", "single_family", "multi_family",
-        "manufactured", "land", "commercial", "business"
+        "Residential", "Residential Lease", "Land", "Farm", "Commercial", "Business"
     ]
     
     # State abbreviations for validation
@@ -70,15 +69,15 @@ class QueryValidator:
         (r'(\d{1,3}(?:,?\d{3})*)\s*sf', 'sqft'),
     ]
     
-    # Property type patterns
+    # Property type patterns - map to RESO API values
     PROPERTY_TYPE_PATTERNS = [
-        (r'\b(?:single\s*family|sfr|house|home)\b', 'single_family'),
-        (r'\bcondo(?:minium)?\b', 'condo'),
-        (r'\btownhouse\b', 'townhouse'),
-        (r'\bmulti\s*family\b', 'multi_family'),
-        (r'\bmanufactured\b', 'manufactured'),
-        (r'\bcommercial\b', 'commercial'),
-        (r'\bland\b', 'land'),
+        (r'\b(?:single\s*family|sfr|house|home)\b', 'Residential'),
+        (r'\bcondo(?:minium)?\b', 'Residential'),
+        (r'\btownhouse\b', 'Residential'),
+        (r'\bmulti\s*family\b', 'Residential'),
+        (r'\bmanufactured\b', 'Residential'),
+        (r'\bcommercial\b', 'Commercial'),
+        (r'\bland\b', 'Land'),
     ]
     
     def __init__(self):
@@ -332,7 +331,7 @@ class QueryValidator:
         if not isinstance(prop_type, str):
             raise ValidationError("Property type must be a string")
         
-        prop_type = prop_type.lower().strip()
+        prop_type = prop_type.strip()
         
         if prop_type not in self.VALID_PROPERTY_TYPES:
             raise ValidationError(f"Invalid property type: {prop_type}")
@@ -344,12 +343,31 @@ class QueryValidator:
         if not isinstance(status, str):
             raise ValidationError("Status must be a string")
         
-        status = status.lower().strip()
+        status = status.strip()
         
-        if status not in self.VALID_STATUSES:
-            raise ValidationError(f"Invalid status: {status}")
+        # Try to map common lowercase/mixed case to proper RESO values
+        status_mapping = {
+            "active": "Active",
+            "under_contract": "Under Contract", 
+            "pending": "Pending",
+            "sold": "Sold",
+            "closed": "Closed",
+            "expired": "Expired",
+            "withdrawn": "Withdrawn", 
+            "cancelled": "Cancelled",
+            "hold": "Hold"
+        }
         
-        return status
+        # Check if it's already in the correct format
+        if status in self.VALID_STATUSES:
+            return status
+            
+        # Try to map from lowercase
+        mapped_status = status_mapping.get(status.lower())
+        if mapped_status:
+            return mapped_status
+            
+        raise ValidationError(f"Invalid status: {status}")
     
     def _validate_listing_id(self, listing_id: Any) -> str:
         """Validate listing ID."""

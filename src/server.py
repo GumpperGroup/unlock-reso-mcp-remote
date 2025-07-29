@@ -304,6 +304,63 @@ class UnlockMlsServer:
             if not properties:
                 return [
                     TextContent(type="text", text="No properties found matching your criteria.")]
+            
+            # Map properties to standardized format
+            try:
+                mapped_properties = self.data_mapper.map_properties(properties)
+            except Exception as mapping_error:
+                logger.warning("Data mapping error, returning limited results: %s", mapping_error)
+                # Return basic property data without full mapping
+                result_text = f"Found {len(properties)} properties (limited details due to data formatting issues):\n\n"
+                for i, prop in enumerate(properties[:limit], 1):
+                    listing_id = prop.get("ListingId", "N/A")
+                    price = prop.get("ListPrice", "N/A")
+                    result_text += f"{i}. **{listing_id}** - ${price:,}\n" if isinstance(price, (int, float)) else f"{i}. **{listing_id}** - {price}\n"
+                
+                result_text += f"\n**Note**: Some property details unavailable due to data formatting issues.\n"
+                result_text += f"- Results: {len(properties)} properties found\n"
+                
+                return [
+                    TextContent(type="text", text=result_text)]
+
+            
+            # Format results
+            result_text = f"Found {len(mapped_properties)} properties:\n\n"
+            
+            for i, prop in enumerate(mapped_properties[:limit], 1):
+                try:
+                    summary = self.data_mapper.get_property_summary(prop)
+                except Exception as summary_error:
+                    logger.warning("Property summary error for listing %s: %s", prop.get('listing_id', 'N/A'), summary_error)
+                    summary = "Details unavailable due to data formatting issues"
+                result_text += f"{i}. **{prop.get('listing_id', 'N/A')}** - {summary}\n"
+                
+                if prop.get("address"):
+                    result_text += f"   📍 {prop['address']}\n"
+                
+                if prop.get("remarks"):
+                    # Truncate remarks to first 100 characters
+                    remarks = prop["remarks"][:100] + "..." if len(prop["remarks"]) > 100 else prop["remarks"]
+                    result_text += f"   💬 {remarks}\n"
+                
+                result_text += "\n"
+            
+            # Add search summary
+            result_text += f"\n**Search Summary:**\n"
+            if query:
+                result_text += f"- Query: {query}\n"
+            if filters and isinstance(filters, dict):
+                filter_summary = []
+                for key, value in filters.items():
+                    if key.startswith(('min_', 'max_')):
+                        filter_summary.append(f"{key.replace('_', ' ')}: {value:,}" if isinstance(value, int) else f"{key.replace('_', ' ')}: {value}")
+                    else:
+                        filter_summary.append(f"{key.replace('_', ' ')}: {value}")
+                result_text += f"- Filters: {', '.join(filter_summary)}\n"
+            result_text += f"- Results: {len(mapped_properties)} properties\n"
+            
+            return [
+                TextContent(type="text", text=result_text)]
         
         except Exception as e:
             # Handle authentication and other errors gracefully
@@ -332,65 +389,6 @@ class UnlockMlsServer:
             logger.error("Property search error: %s", str(e))
             return [
                 TextContent(type="text", text=error_message)]
-
-        
-            
-        # Map properties to standardized format
-        try:
-            mapped_properties = self.data_mapper.map_properties(properties)
-        except Exception as mapping_error:
-            logger.warning("Data mapping error, returning limited results: %s", mapping_error)
-            # Return basic property data without full mapping
-            result_text = f"Found {len(properties)} properties (limited details due to data formatting issues):\n\n"
-            for i, prop in enumerate(properties[:limit], 1):
-                listing_id = prop.get("ListingId", "N/A")
-                price = prop.get("ListPrice", "N/A")
-                result_text += f"{i}. **{listing_id}** - ${price:,}\n" if isinstance(price, (int, float)) else f"{i}. **{listing_id}** - {price}\n"
-            
-            result_text += f"\n**Note**: Some property details unavailable due to data formatting issues.\n"
-            result_text += f"- Results: {len(properties)} properties found\n"
-            
-            return [
-                TextContent(type="text", text=result_text)]
-
-        
-        # Format results
-        result_text = f"Found {len(mapped_properties)} properties:\n\n"
-        
-        for i, prop in enumerate(mapped_properties[:limit], 1):
-            try:
-                summary = self.data_mapper.get_property_summary(prop)
-            except Exception as summary_error:
-                logger.warning("Property summary error for listing %s: %s", prop.get('listing_id', 'N/A'), summary_error)
-                summary = "Details unavailable due to data formatting issues"
-            result_text += f"{i}. **{prop.get('listing_id', 'N/A')}** - {summary}\n"
-            
-            if prop.get("address"):
-                result_text += f"   📍 {prop['address']}\n"
-            
-            if prop.get("remarks"):
-                # Truncate remarks to first 100 characters
-                remarks = prop["remarks"][:100] + "..." if len(prop["remarks"]) > 100 else prop["remarks"]
-                result_text += f"   💬 {remarks}\n"
-            
-            result_text += "\n"
-        
-        # Add search summary
-        result_text += f"\n**Search Summary:**\n"
-        if query:
-            result_text += f"- Query: {query}\n"
-        if filters and isinstance(filters, dict):
-            filter_summary = []
-            for key, value in filters.items():
-                if key.startswith(('min_', 'max_')):
-                    filter_summary.append(f"{key.replace('_', ' ')}: {value:,}" if isinstance(value, int) else f"{key.replace('_', ' ')}: {value}")
-                else:
-                    filter_summary.append(f"{key.replace('_', ' ')}: {value}")
-            result_text += f"- Filters: {', '.join(filter_summary)}\n"
-        result_text += f"- Results: {len(mapped_properties)} properties\n"
-        
-        return [
-            TextContent(type="text", text=result_text)]
 
     
     async def _get_property_details(self, arguments: Dict[str, Any]) -> list[TextContent]:
@@ -534,7 +532,7 @@ class UnlockMlsServer:
             city = arguments.get("city")
             state = arguments.get("state")
             zip_code = arguments.get("zip_code")
-            property_type = arguments.get("property_type", "residential")
+            property_type = arguments.get("property_type")
             days_back = arguments.get("days_back", 90)
             
             logger.info("Analyzing market for location: %s %s %s", city, state, zip_code)
@@ -548,7 +546,8 @@ class UnlockMlsServer:
             if zip_code:
                 location_filter["zip_code"] = zip_code
             
-            location_filter["property_type"] = property_type
+            if property_type:
+                location_filter["property_type"] = property_type
             
             # Validate location filters
             validated_filters = self.query_validator.validate_search_filters(location_filter)
@@ -573,7 +572,8 @@ class UnlockMlsServer:
             location_name = f"{city}, {state}" if city and state else zip_code or "the area"
             
             result_text = f"# Market Analysis - {location_name.title()}\n\n"
-            result_text += f"**Property Type**: {property_type.replace('_', ' ').title()}\n"
+            if property_type:
+                result_text += f"**Property Type**: {property_type.replace('_', ' ').title()}\n"
             result_text += f"**Analysis Period**: Last {days_back} days\n\n"
             
             # Active listings analysis
@@ -678,18 +678,19 @@ class UnlockMlsServer:
         
         logger.info("Searching for agents with criteria: %s", arguments)
         
-        # Build search filters
+        # Build search filters using correct RESO member field names
         filters = {}
         if name:
-            filters["agent_name"] = name
+            # Use a more flexible approach for name searching
+            filters["MemberFullName"] = name
         if office:
-            filters["office_name"] = office
+            filters["MemberOfficeName"] = office
         if city:
-            filters["city"] = city
+            filters["MemberCity"] = city
         if state:
-            filters["state"] = state
+            filters["MemberStateOrProvince"] = state
         if specialization:
-            filters["specialization"] = specialization
+            filters["MemberDesignation"] = specialization
         
         # Search members
         members = await self.reso_client.query_members(
