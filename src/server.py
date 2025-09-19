@@ -17,6 +17,7 @@ from mcp.types import (
 from .reso_client import ResoWebApiClient
 from .utils.data_mapper import ResoDataMapper
 from .utils.validators import QueryValidator, ValidationError
+from .utils.location_service import LocationService, LocationServiceError
 from .config.settings import get_settings
 from .config.logging_config import setup_logging
 
@@ -35,6 +36,17 @@ class UnlockMlsServer:
         )
         self.data_mapper = ResoDataMapper()
         self.query_validator = QueryValidator()
+
+        # Initialize location service if Google Maps API key is available
+        self.location_service = None
+        if self.settings.google_maps_api_key:
+            try:
+                self.location_service = LocationService()
+                logger.info("Location service enabled with Google Maps integration")
+            except Exception as e:
+                logger.warning("Failed to initialize location service: %s", e)
+        else:
+            logger.info("Location service disabled - Google Maps API key not configured")
         
         # Create MCP server instance
         self.server = Server("unlock-mls-mcp")
@@ -216,7 +228,102 @@ class UnlockMlsServer:
                     }
                 )
             ]
-            
+
+            # Add location-based search tool if Google Maps is configured
+            if self.location_service:
+                tools.append(
+                    Tool(
+                        name="find_properties_near_location",
+                        description="Find real estate properties near any location (businesses, landmarks, addresses, hospitals, schools, etc.) using Google Maps integration",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "location": {
+                                    "type": "string",
+                                    "description": "Location name, address, business name, or point of interest (e.g., 'Austin City Hall', '123 Main St, Austin TX', 'Starbucks on 6th Street')"
+                                },
+                                "radius_miles": {
+                                    "type": "number",
+                                    "description": "Search radius in miles",
+                                    "default": 1.0,
+                                    "minimum": 0.1,
+                                    "maximum": 10.0
+                                },
+                                "property_filters": {
+                                    "type": "object",
+                                    "description": "Standard RESO property search filters",
+                                    "properties": {
+                                        "min_price": {"type": "integer", "description": "Minimum price"},
+                                        "max_price": {"type": "integer", "description": "Maximum price"},
+                                        "min_bedrooms": {"type": "integer", "description": "Minimum bedrooms"},
+                                        "max_bedrooms": {"type": "integer", "description": "Maximum bedrooms"},
+                                        "min_bathrooms": {"type": "number", "description": "Minimum bathrooms"},
+                                        "max_bathrooms": {"type": "number", "description": "Maximum bathrooms"},
+                                        "min_sqft": {"type": "integer", "description": "Minimum square footage"},
+                                        "max_sqft": {"type": "integer", "description": "Maximum square footage"},
+                                        "property_type": {
+                                            "type": "string",
+                                            "enum": ["residential", "condo", "townhouse", "single_family",
+                                                    "multi_family", "manufactured", "land", "commercial", "business"],
+                                            "description": "Property type"
+                                        },
+                                        "status": {
+                                            "type": "string",
+                                            "enum": ["active", "under_contract", "pending", "sold", "closed",
+                                                    "expired", "withdrawn", "cancelled", "hold"],
+                                            "description": "Property status"
+                                        }
+                                    }
+                                },
+                                "limit": {
+                                    "type": "integer",
+                                    "description": "Maximum number of properties to return",
+                                    "default": 25,
+                                    "minimum": 1,
+                                    "maximum": 100
+                                }
+                            },
+                            "required": ["location"]
+                        }
+                    )
+                )
+
+                # Add distance calculation tool
+                tools.append(
+                    Tool(
+                        name="find_distance_to_nearest",
+                        description="Find the distance between a property address and the nearest location of a specific type (hospitals, schools, restaurants, etc.)",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "property_address": {
+                                    "type": "string",
+                                    "description": "Property address to calculate distance from"
+                                },
+                                "place_type": {
+                                    "type": "string",
+                                    "description": "Type of place to find (e.g., 'hospital', 'school', 'restaurant', 'grocery_store', 'park', 'gas_station')"
+                                },
+                                "radius_miles": {
+                                    "type": "number",
+                                    "default": 5.0,
+                                    "minimum": 0.1,
+                                    "maximum": 25.0,
+                                    "description": "Search radius in miles (default: 5.0)"
+                                },
+                                "max_results": {
+                                    "type": "integer",
+                                    "default": 5,
+                                    "minimum": 1,
+                                    "maximum": 20,
+                                    "description": "Maximum number of nearest places to return (default: 5)"
+                                }
+                            },
+                            "required": ["property_address", "place_type"]
+                        }
+                    )
+                )
+
             return tools
         
         @self.server.call_tool()
@@ -233,6 +340,10 @@ class UnlockMlsServer:
                     return await self._analyze_market_by_address(arguments)
                 elif name == "find_agent":
                     return await self._find_agent(arguments)
+                elif name == "find_properties_near_location":
+                    return await self._find_properties_near_location(arguments)
+                elif name == "find_distance_to_nearest":
+                    return await self._find_distance_to_nearest(arguments)
                 else:
                     raise ValueError(f"Unknown tool: {name}")
                     
@@ -957,6 +1068,264 @@ class UnlockMlsServer:
         except Exception as e:
             logger.error("Address market analysis error: %s", str(e))
             return [TextContent(type="text", text=f"Error analyzing market by address: {str(e)}")]
+
+    async def _find_properties_near_location(self, arguments: Dict[str, Any]) -> list[TextContent]:
+        """Find properties near a location using Google Maps Places API."""
+        if not self.location_service:
+            return [TextContent(type="text", text="Location-based search is not available. Please configure the Google Maps API key to enable this feature.")]
+
+        try:
+            location = arguments["location"]
+            radius_miles = arguments.get("radius_miles", 1.0)
+            property_filters = arguments.get("property_filters", {})
+            limit = arguments.get("limit", 25)
+
+            logger.info("Finding properties near location: %s within %f miles", location, radius_miles)
+
+            # Validate property filters if provided
+            if property_filters:
+                property_filters = self.query_validator.validate_search_filters(property_filters)
+
+            # Use location service to find properties
+            properties, metadata = await self.location_service.expand_search_if_needed(
+                location=location,
+                radius_miles=radius_miles,
+                reso_client=self.reso_client,
+                property_filters=property_filters,
+                limit=limit,
+                min_results=3  # Expand search if fewer than 3 results
+            )
+
+            if not properties:
+                # Generate helpful error message based on location type
+                resolved_info = metadata.get('resolved_location', {})
+                location_type = resolved_info.get('location_type', 'general')
+
+                error_msg = f"No properties found near '{location}' within {radius_miles} miles"
+
+                if property_filters:
+                    filter_desc = []
+                    for key, value in property_filters.items():
+                        if key.startswith(('min_', 'max_')):
+                            filter_desc.append(f"{key.replace('_', ' ')}: {value:,}" if isinstance(value, int) else f"{key.replace('_', ' ')}: {value}")
+                        else:
+                            filter_desc.append(f"{key.replace('_', ' ')}: {value}")
+                    error_msg += f" matching your criteria ({', '.join(filter_desc)})"
+
+                error_msg += ".\n\n**Suggestions:**\n"
+                error_msg += f"- Try expanding the search radius (currently {radius_miles} miles)\n"
+                error_msg += "- Adjust or remove some property filters\n"
+                error_msg += "- Check the spelling of the location name\n"
+
+                if location_type == 'business':
+                    error_msg += "- Try including the city name with the business\n"
+                elif location_type == 'address':
+                    error_msg += "- Verify the address is correct and complete\n"
+
+                return [TextContent(type="text", text=error_msg)]
+
+            # Map properties to standardized format
+            try:
+                mapped_properties = self.data_mapper.map_properties(properties)
+            except Exception as mapping_error:
+                logger.warning("Data mapping error, returning limited results: %s", mapping_error)
+                # Return basic property data without full mapping
+                result_text = f"Found {len(properties)} properties near '{location}' (limited details due to data formatting issues):\n\n"
+                for i, prop in enumerate(properties[:limit], 1):
+                    listing_id = prop.get("ListingId", "N/A")
+                    price = prop.get("ListPrice", "N/A")
+                    distance = prop.get("distance_miles")
+                    distance_str = f" ({distance:.1f} mi)" if distance else ""
+                    result_text += f"{i}. **{listing_id}** - ${price:,}{distance_str}\n" if isinstance(price, (int, float)) else f"{i}. **{listing_id}** - {price}{distance_str}\n"
+
+                return [TextContent(type="text", text=result_text)]
+
+            # Format results with location context
+            resolved_info = metadata.get('resolved_location', {})
+            search_center = metadata.get('search_center', {})
+            actual_radius = metadata.get('expanded_radius_miles', radius_miles)
+
+            result_text = f"Found {len(mapped_properties)} properties near **{location}**:\n\n"
+
+            # Add location resolution details
+            if resolved_info.get('resolved_coordinates'):
+                coords = resolved_info['resolved_coordinates']
+                result_text += f"📍 **Resolved Location**: {coords['latitude']:.4f}, {coords['longitude']:.4f}\n"
+
+            if actual_radius != radius_miles:
+                result_text += f"🔍 **Search Radius**: Expanded from {radius_miles} to {actual_radius:.1f} miles\n"
+            else:
+                result_text += f"🔍 **Search Radius**: {radius_miles} miles\n"
+
+            result_text += "\n"
+
+            # List properties with distance information
+            for i, prop in enumerate(mapped_properties[:limit], 1):
+                try:
+                    summary = self.data_mapper.get_property_summary(prop)
+                except Exception as summary_error:
+                    logger.warning("Property summary error for listing %s: %s", prop.get('listing_id', 'N/A'), summary_error)
+                    summary = "Details unavailable due to data formatting issues"
+
+                # Add distance information if available
+                distance_info = ""
+                if prop.get("distance_miles"):
+                    distance_info = f" ({prop['distance_miles']:.1f} mi)"
+
+                result_text += f"{i}. **{prop.get('listing_id', 'N/A')}** - {summary}{distance_info}\n"
+
+                if prop.get("address"):
+                    result_text += f"   📍 {prop['address']}\n"
+
+                if prop.get("remarks"):
+                    # Truncate remarks to first 100 characters
+                    remarks = prop["remarks"][:100] + "..." if len(prop["remarks"]) > 100 else prop["remarks"]
+                    result_text += f"   💬 {remarks}\n"
+
+                result_text += "\n"
+
+            # Add search summary
+            result_text += f"\n**Search Summary:**\n"
+            result_text += f"- **Location**: {location}\n"
+            if resolved_info.get('location_type'):
+                result_text += f"- **Location Type**: {resolved_info['location_type'].title()}\n"
+            result_text += f"- **Search Area**: {actual_radius:.1f} mile radius (~{metadata.get('search_area_sq_miles', 0):.1f} sq mi)\n"
+
+            # Add filter summary if filters were applied
+            if property_filters:
+                filter_summary = []
+                for key, value in property_filters.items():
+                    if key.startswith(('min_', 'max_')):
+                        filter_summary.append(f"{key.replace('_', ' ')}: {value:,}" if isinstance(value, int) else f"{key.replace('_', ' ')}: {value}")
+                    else:
+                        filter_summary.append(f"{key.replace('_', ' ')}: {value}")
+                result_text += f"- **Filters**: {', '.join(filter_summary)}\n"
+
+            result_text += f"- **Results**: {len(mapped_properties)} properties found\n"
+
+            # Add note about radius expansion if it occurred
+            if actual_radius != radius_miles:
+                result_text += f"\n*Note: Search radius was automatically expanded from {radius_miles} to {actual_radius:.1f} miles to find more results.*\n"
+
+            return [TextContent(type="text", text=result_text)]
+
+        except LocationServiceError as e:
+            error_message = f"Location search error: {str(e)}"
+            logger.error("Location service error: %s", str(e))
+            return [TextContent(type="text", text=error_message)]
+        except ValidationError as e:
+            error_message = f"Validation error: {str(e)}"
+            logger.warning("Validation error in find_properties_near_location: %s", e)
+            return [TextContent(type="text", text=error_message)]
+        except Exception as e:
+            # Handle errors gracefully
+            error_message = "An error occurred while searching for properties near the location."
+
+            if "google" in str(e).lower() or "places" in str(e).lower():
+                error_message = f"Google Maps service error: {str(e)}"
+            elif "authentication" in str(e).lower() or "api key" in str(e).lower():
+                error_message = "Google Maps API authentication error. Please check your API key configuration."
+            elif "quota" in str(e).lower() or "rate limit" in str(e).lower():
+                error_message = "Google Maps API quota exceeded. Please try again later or contact support."
+            elif "timeout" in str(e).lower():
+                error_message = "Location search timeout. Please try again with a more specific location."
+            elif hasattr(e, 'status'):
+                if e.status == 403:
+                    error_message = "Access denied: Please check your Google Maps API key permissions."
+                elif e.status == 429:
+                    error_message = "Rate limit exceeded: Too many location requests. Please wait a moment and try again."
+                elif e.status >= 500:
+                    error_message = "Google Maps service temporarily unavailable. Please try again later."
+
+            logger.error("Error in find_properties_near_location: %s", str(e))
+            return [TextContent(type="text", text=error_message)]
+
+    async def _find_distance_to_nearest(self, arguments: Dict[str, Any]) -> list[TextContent]:
+        """Find distance between a property address and nearest location of specified type."""
+        if not self.location_service:
+            return [TextContent(type="text", text="Location-based search is not available. Please configure the Google Maps API key to enable this feature.")]
+
+        try:
+            property_address = arguments["property_address"]
+            place_type = arguments["place_type"]
+            radius_miles = arguments.get("radius_miles", 5.0)
+            max_results = arguments.get("max_results", 5)
+
+            logger.info("Finding nearest %s to property at: %s within %f miles", place_type, property_address, radius_miles)
+
+            # Use location service to find nearest places
+            results = await self.location_service.find_distance_to_nearest(
+                property_address=property_address,
+                place_type=place_type,
+                radius_miles=radius_miles,
+                max_results=max_results
+            )
+
+            if not results:
+                error_msg = f"No {place_type.replace('_', ' ')} locations found within {radius_miles} miles of '{property_address}'.\n\n"
+                error_msg += "**Suggestions:**\n"
+                error_msg += f"- Try expanding the search radius (currently {radius_miles} miles)\n"
+                error_msg += "- Check the spelling of the property address\n"
+                error_msg += f"- Try a different place type (e.g., 'hospital' instead of '{place_type}')\n"
+                error_msg += "- Verify the address is complete with city and state\n"
+                return [TextContent(type="text", text=error_msg)]
+
+            # Format results
+            result_text = f"Found {len(results)} {place_type.replace('_', ' ')} location(s) near **{property_address}**:\n\n"
+
+            for i, place in enumerate(results, 1):
+                name = place.get('name', 'Unknown')
+                distance = place.get('distance_miles', 0)
+                address = place.get('address', 'Address not available')
+                rating = place.get('rating')
+                place_id = place.get('place_id', '')
+
+                result_text += f"{i}. **{name}** ({distance:.1f} miles)\n"
+                result_text += f"   📍 {address}\n"
+
+                if rating:
+                    result_text += f"   ⭐ Rating: {rating}/5\n"
+
+                if place_id:
+                    result_text += f"   🔗 Google Maps: https://maps.google.com/?cid={place_id}\n"
+
+                result_text += "\n"
+
+            # Add search summary
+            result_text += f"**Search Summary:**\n"
+            result_text += f"- **Property**: {property_address}\n"
+            result_text += f"- **Looking for**: {place_type.replace('_', ' ').title()}\n"
+            result_text += f"- **Search Radius**: {radius_miles} miles\n"
+            result_text += f"- **Results**: {len(results)} locations found\n"
+
+            if results:
+                nearest = results[0]
+                result_text += f"- **Nearest**: {nearest.get('name', 'Unknown')} at {nearest.get('distance_miles', 0):.1f} miles\n"
+
+            return [TextContent(type="text", text=result_text)]
+
+        except Exception as e:
+            # Handle errors gracefully
+            error_message = "An error occurred while finding nearby locations."
+
+            if "google" in str(e).lower() or "places" in str(e).lower():
+                error_message = f"Google Maps service error: {str(e)}"
+            elif "authentication" in str(e).lower() or "api key" in str(e).lower():
+                error_message = "Google Maps API authentication error. Please check your API key configuration."
+            elif "quota" in str(e).lower() or "rate limit" in str(e).lower():
+                error_message = "Google Maps API quota exceeded. Please try again later or contact support."
+            elif "timeout" in str(e).lower():
+                error_message = "Location search timeout. Please try again with a more specific address."
+            elif hasattr(e, 'status'):
+                if e.status == 403:
+                    error_message = "Access denied: Please check your Google Maps API key permissions."
+                elif e.status == 429:
+                    error_message = "Rate limit exceeded: Too many location requests. Please wait a moment and try again."
+                elif e.status >= 500:
+                    error_message = "Google Maps service temporarily unavailable. Please try again later."
+
+            logger.error("Error in find_distance_to_nearest: %s", str(e))
+            return [TextContent(type="text", text=error_message)]
 
     def _extract_zip_from_address(self, address: str) -> Optional[str]:
         """Extract ZIP code from address string."""

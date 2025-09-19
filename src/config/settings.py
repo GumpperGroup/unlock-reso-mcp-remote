@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     cache_enabled: bool = False
     cache_ttl_seconds: int = 300
 
+    # Google Maps API Configuration
+    google_maps_api_key: str = ""
+    google_maps_cache_ttl_hours: int = 24
+    google_maps_max_requests_per_day: int = 800
+    google_maps_enable_caching: bool = True
+
     @property
     def odata_endpoint(self) -> str:
         """Get the OData endpoint URL for the configured MLS."""

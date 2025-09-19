@@ -48,9 +48,10 @@ pytest tests/test_load.py -v              # Load tests
 
 1. **MCP Server Framework** (src/server.py)
    - Complete MCP server implementation using mcp.server framework
-   - Implements 4 main tools: search_properties, get_property_details, analyze_market, find_agent
+   - Implements 5 main tools: search_properties, get_property_details, analyze_market, find_agent, find_properties_near_location
    - Uses stdio transport for Claude Desktop integration
    - Includes 8 MCP resources for documentation and examples
+   - Google Maps integration for location-based property searches
 
 2. **Authentication Layer** (src/auth/)
    - Bearer token authentication using Bridge Interactive server token
@@ -66,6 +67,8 @@ pytest tests/test_load.py -v              # Load tests
    - ResoDataMapper: Translates RESO fields to user-friendly formats
    - QueryValidator: Input validation and natural language parsing
    - Address formatting, price formatting, status mapping
+   - GooglePlacesClient: Google Maps Places API and Distance Matrix API integration
+   - LocationService: Coordinate-based property search with travel time analysis
 
 ### Bridge Interactive API Integration
 
@@ -91,13 +94,20 @@ Required environment variables (see .env.example):
 - `BRIDGE_API_BASE_URL`: API base URL
 - `LOG_LEVEL`: Logging level (default: INFO)
 
+Google Maps API Configuration (optional, for location-based searches):
+- `GOOGLE_MAPS_API_KEY`: API key for Places API and Distance Matrix API
+- `GOOGLE_MAPS_CACHE_TTL_HOURS`: Cache duration for location lookups (default: 24)
+- `GOOGLE_MAPS_MAX_REQUESTS_PER_DAY`: Daily API usage limit (default: 800)
+- `GOOGLE_DISTANCE_MATRIX_ENABLED`: Enable travel time calculations (default: false)
+
 ## Development Workflow
 
 ### Current State
-- **PRODUCTION READY**: All phases of development complete
+- **PRODUCTION READY**: All phases of development complete with Google Maps enhancement
 - All core components implemented and tested
-- MCP server with 4 tools and 8 resources fully functional
+- MCP server with 6 tools and 8 resources fully functional
 - **Real API Integration**: Confirmed working with Bridge Interactive RESO Web API
+- **Google Maps Integration**: Location-based searches with Places API and optional Distance Matrix API
 - 141+ core tests passing with 85% code coverage
 - Enterprise-grade testing and performance validation complete
 
@@ -106,9 +116,11 @@ Required environment variables (see .env.example):
 2. ✅ **RESO API Client** (src/reso_client.py) - Async HTTP client with OData support
 3. ✅ **Data Mapping** (src/utils/data_mapper.py) - RESO to user-friendly format conversion
 4. ✅ **Input Validation** (src/utils/validators.py) - Natural language parsing and validation
-5. ✅ **MCP Server** (src/server.py) - Complete server with 4 tools and 8 resources
-6. ✅ **Real API Integration** - Validated with Bridge Interactive RESO Web API
-7. ✅ **Enterprise Testing Suite**:
+5. ✅ **Google Maps Integration** (src/utils/) - Places API and Distance Matrix API clients
+6. ✅ **Location Services** (src/utils/location_service.py) - Coordinate-based search with travel time analysis
+7. ✅ **MCP Server** (src/server.py) - Complete server with 6 tools and 8 resources
+8. ✅ **Real API Integration** - Validated with Bridge Interactive RESO Web API
+9. ✅ **Enterprise Testing Suite**:
    - ✅ Integration tests for end-to-end workflows (tests/test_integration.py)
    - ✅ Performance testing and benchmarks (tests/test_performance.py)
    - ✅ Error scenario testing (tests/test_error_scenarios.py)
@@ -116,8 +128,9 @@ Required environment variables (see .env.example):
    - ✅ Test data fixtures and utilities (tests/fixtures/)
 
 ### Production Status
-- **✅ READY FOR DEPLOYMENT**: All development phases complete
+- **✅ READY FOR DEPLOYMENT**: All development phases complete with location intelligence
 - **✅ REAL API VALIDATED**: Working with live Bridge Interactive MLS data
+- **✅ GOOGLE MAPS INTEGRATED**: Location-based searches with Places and Distance Matrix APIs
 - **✅ PERFORMANCE TESTED**: 17,000+ operations/second capacity
 - **✅ ERROR HANDLING**: Comprehensive error scenarios covered
 
@@ -138,8 +151,10 @@ Required environment variables (see .env.example):
 3. **Error Handling**: Graceful handling of API errors with user-friendly messages
 4. **Security**: Server tokens handled securely, never logged or exposed in responses
 5. **Authentication**: Primary method is Bearer token; OAuth2Handler available for compatibility
-6. **Testing**: Enterprise-grade test suite with 141+ core tests and real API validation
-7. **Production Readiness**: Validated with live Bridge Interactive API and performance benchmarks
+6. **Google Maps Integration**: Optional location-based searches with Places API and Distance Matrix API
+7. **Location Intelligence**: Natural language location queries with travel time analysis
+8. **Testing**: Enterprise-grade test suite with 141+ core tests and real API validation
+9. **Production Readiness**: Validated with live Bridge Interactive API and performance benchmarks
 
 ## MCP Server Configuration
 

@@ -6,6 +6,8 @@ A Model Context Protocol (MCP) server that provides standardized access to UNLOC
 
 ### 🏠 **Property Search & Analysis**
 - **Natural Language Search**: Use conversational queries like "3 bedroom house under $500k in Austin TX"
+- **Location-Based Search**: Find properties near specific locations using Google Maps integration
+- **Travel Time Analysis**: Search properties within commute time to work, school, or points of interest
 - **Advanced Filtering**: Precise search with price ranges, property types, location, and features
 - **Detailed Property Information**: Comprehensive property details including photos, descriptions, and agent information
 - **Market Analysis**: Real-time market trends, pricing statistics, and inventory analysis
@@ -36,6 +38,7 @@ A Model Context Protocol (MCP) server that provides standardized access to UNLOC
 - Python 3.11 or higher
 - [uv](https://github.com/astral-sh/uv) package manager
 - Bridge Interactive API credentials
+- Google Maps API key (optional, for location-based searches)
 
 ### Installation
 
@@ -78,6 +81,12 @@ LOG_LEVEL=INFO
 API_RATE_LIMIT_PER_MINUTE=60
 CACHE_ENABLED=false
 CACHE_TTL_SECONDS=300
+
+# Google Maps API Configuration (Optional - for location-based searches)
+GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
+GOOGLE_MAPS_CACHE_TTL_HOURS=24
+GOOGLE_MAPS_MAX_REQUESTS_PER_DAY=800
+GOOGLE_DISTANCE_MATRIX_ENABLED=false
 ```
 
 ### Claude Desktop Integration
@@ -105,6 +114,8 @@ Add the following configuration to your Claude Desktop MCP settings:
 Find me a 3 bedroom house under $500k in Austin TX
 Show me condos with pool downtown Dallas under $400k
 Search for single family homes over 2000 sqft in Houston
+Find properties within 30-minute drive to downtown Austin
+Properties within walking distance of UT campus under $400k
 ```
 
 **Structured Search**:
@@ -236,6 +247,69 @@ Find real estate agents or members.
 }
 ```
 
+#### `find_properties_near_location`
+Find properties near a specific location using Google Maps integration.
+
+**Parameters**:
+- `location` (string, required): Location name, address, or point of interest
+- `radius_miles` (number, optional): Search radius in miles (default: 1.0)
+- `travel_mode` (string, optional): Travel mode for distance calculations (driving, walking, bicycling, transit)
+- `max_travel_time_minutes` (integer, optional): Maximum travel time in minutes
+- `use_travel_time` (boolean, optional): Enable travel time calculations (default: false)
+- `property_filters` (object, optional): Standard property search filters
+- `limit` (integer, optional): Maximum results (default: 25, max: 100)
+
+**Examples**:
+```json
+{
+  "location": "Austin City Hall",
+  "radius_miles": 2.0,
+  "property_filters": {
+    "max_price": 500000,
+    "min_bedrooms": 2
+  }
+}
+```
+
+**With Travel Time Analysis**:
+```json
+{
+  "location": "Dell Technologies, Round Rock TX",
+  "travel_mode": "driving",
+  "max_travel_time_minutes": 30,
+  "use_travel_time": true,
+  "property_filters": {
+    "min_bedrooms": 3,
+    "max_price": 600000
+  }
+}
+```
+
+#### `find_distance_to_nearest`
+Find the distance between a property address and the nearest location of a specific type.
+
+**Parameters**:
+- `property_address` (string, required): Property address to calculate distance from
+- `place_type` (string, required): Type of place to find (e.g., 'hospital', 'school', 'restaurant', 'grocery_store', 'park', 'gas_station')
+- `radius_miles` (number, optional): Search radius in miles (default: 5.0, max: 25.0)
+- `max_results` (integer, optional): Maximum number of nearest places to return (default: 5, max: 20)
+
+**Examples**:
+```json
+{
+  "property_address": "123 Main St, Austin TX",
+  "place_type": "hospital",
+  "radius_miles": 10.0,
+  "max_results": 3
+}
+```
+
+**Response includes**:
+- Distance in miles to each location
+- Location name, address, and Google Maps ratings
+- Direct Google Maps links for navigation
+- Summary of nearest location found
+
 ### Resources
 
 The server provides several informational resources:
@@ -256,15 +330,19 @@ The server provides several informational resources:
 ```
 unlock-reso-mcp/
 ├── src/
-│   ├── auth/           # OAuth2 authentication
-│   ├── config/         # Configuration and settings
-│   ├── utils/          # Data mapping and validation utilities
-│   ├── reso_client.py  # RESO API client
-│   └── server.py       # Main MCP server implementation
-├── tests/              # Test suite
-├── context/            # API documentation and examples
-├── main.py            # Entry point
-└── pyproject.toml     # Project configuration
+│   ├── auth/                    # OAuth2 authentication
+│   ├── config/                  # Configuration and settings
+│   ├── utils/                   # Utilities and integrations
+│   │   ├── data_mapper.py       # RESO data mapping
+│   │   ├── validators.py        # Input validation
+│   │   ├── google_places_client.py  # Google Maps API client
+│   │   └── location_service.py  # Location-based search service
+│   ├── reso_client.py          # RESO API client
+│   └── server.py               # Main MCP server implementation
+├── tests/                      # Test suite
+├── context/                    # API documentation and examples
+├── main.py                     # Entry point
+└── pyproject.toml             # Project configuration
 ```
 
 ### Development Commands
@@ -310,11 +388,13 @@ The project includes enterprise-grade test coverage:
 The server is built with the following components:
 
 1. **MCP Server Framework**: Uses the standard `mcp.server` framework for MCP compliance
-2. **Bearer Token Authentication**: Server token authentication using `BRIDGE_SERVER_TOKEN` 
+2. **Bearer Token Authentication**: Server token authentication using `BRIDGE_SERVER_TOKEN`
 3. **RESO API Client**: Async HTTP client with OData query building capabilities
-4. **Data Mapping**: Translates RESO fields to user-friendly formats
-5. **Natural Language Processing**: Parses conversational search queries into structured filters
-6. **Comprehensive Error Handling**: Graceful degradation with user-friendly error messages
+4. **Google Maps Integration**: Places API and Distance Matrix API for location intelligence
+5. **Location Services**: Coordinate-based search with travel time analysis
+6. **Data Mapping**: Translates RESO fields to user-friendly formats
+7. **Natural Language Processing**: Parses conversational search queries into structured filters
+8. **Comprehensive Error Handling**: Graceful degradation with user-friendly error messages
 
 ## Bridge Interactive API
 
@@ -356,6 +436,13 @@ All data returned follows RESO Data Dictionary 2.0 specifications:
 - Check that all dependencies are installed with `uv sync --dev`
 - Verify the server is running on the correct transport (stdio)
 
+#### Google Maps Integration Issues
+- Verify Google Maps API key is correct in `.env` file
+- Ensure Places API is enabled in Google Cloud Console
+- Check API key restrictions (IP restrictions, referrer restrictions)
+- Verify daily quota limits are not exceeded
+- Location searches work without travel time if Distance Matrix API is disabled
+
 ### Debug Mode
 
 Enable debug logging by setting the environment variable:
@@ -375,7 +462,7 @@ For technical support:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is private and owned by David Gumpper, Gumpper Group LLC.
 
 ## Contributing
 
@@ -397,9 +484,12 @@ Contributions are welcome! Please follow these steps:
 
 ## Changelog
 
-### Version 1.0.0 (Current) - PRODUCTION READY
-- ✅ Complete MCP server implementation
-- ✅ 4 main tools: search_properties, get_property_details, analyze_market, find_agent
+### Version 1.1.0 (Current) - PRODUCTION READY + GOOGLE MAPS
+- ✅ Complete MCP server implementation with location intelligence
+- ✅ **6 main tools**: search_properties, get_property_details, analyze_market, find_agent, find_properties_near_location, find_distance_to_nearest
+- ✅ **Google Maps Integration**: Places API and Distance Matrix API support
+- ✅ **Location-Based Search**: Natural language location queries with travel time analysis
+- ✅ **Multi-Modal Transportation**: Support for driving, walking, bicycling, and transit modes
 - ✅ 8 comprehensive resources and guides
 - ✅ Natural language query processing
 - ✅ **Real API Integration**: Validated with Bridge Interactive RESO Web API
@@ -407,7 +497,7 @@ Contributions are welcome! Please follow these steps:
 - ✅ RESO Data Dictionary 2.0 compliance
 - ✅ **Enterprise Testing**: 141+ tests with 85% coverage
 - ✅ **Performance Validated**: 17,000+ operations/second capacity
-- ✅ Comprehensive documentation
+- ✅ Comprehensive documentation with Google Maps integration guide
 
 ## Roadmap
 
@@ -418,17 +508,21 @@ Contributions are welcome! Please follow these steps:
 - ✅ Load testing for production readiness
 - ✅ Test data fixtures and utilities
 
-### Phase 8: Optimization & Enhancement
-- Caching layer for improved performance
-- Rate limiting compliance
-- Enhanced error handling
+### ✅ Phase 8: Google Maps Integration (Completed)
+- ✅ Google Places API integration for location resolution
+- ✅ Distance Matrix API for travel time calculations
+- ✅ Location-based property search with `find_properties_near_location` tool
+- ✅ Multi-modal transportation support (driving, walking, bicycling, transit)
+- ✅ Cost-optimized hybrid distance calculation strategy
+- ✅ Comprehensive integration documentation
 
 ### Phase 9: Deployment & CI/CD
 - Docker containerization
 - GitHub Actions workflow
 - Deployment documentation
 
-### Phase 10: Production Readiness
-- Final validation and testing
-- Performance optimization
-- Production deployment guidelines
+### Phase 10: Enhanced Features
+- Real-time traffic integration
+- Advanced route optimization
+- School district integration
+- Public transit schedules
