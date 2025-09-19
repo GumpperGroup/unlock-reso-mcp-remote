@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  unlock-reso-remote-mcp:
+    build: .
+    container_name: unlock-reso-remote-mcp
+    ports:
+      - "8000:8000"
+    environment:
+      - BRIDGE_API_BASE_URL=${BRIDGE_API_BASE_URL}
+      - BRIDGE_MLS_ID=${BRIDGE_MLS_ID}
+      - BRIDGE_SERVER_TOKEN=${BRIDGE_SERVER_TOKEN}
+      - MCP_SERVER_NAME=${MCP_SERVER_NAME:-unlock-reso-remote-mcp}
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mcp-network
+
+networks:
+  mcp-network:
+    driver: bridge
