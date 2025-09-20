@@ -291,18 +291,21 @@ class GooglePlacesClient:
         # Prepare text search request
         request_data = {
             "textQuery": location,
-            "maxResultCount": 1,
-            "fields": "places.location,places.displayName"
+            "maxResultCount": 1
         }
 
         async with aiohttp.ClientSession() as session:
             try:
                 # Use Text Search endpoint for location resolution
+                headers = {
+                    'X-Goog-FieldMask': 'places.location,places.displayName'
+                }
                 response = await self._make_request(
                     session,
                     'POST',
                     ':searchText',
-                    json=request_data
+                    json=request_data,
+                    headers=headers
                 )
 
                 # Extract coordinates from response
@@ -384,11 +387,16 @@ class GooglePlacesClient:
 
         async with aiohttp.ClientSession() as session:
             try:
+                # Add field mask for nearby search
+                headers = {
+                    'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.types'
+                }
                 response = await self._make_request(
                     session,
                     'POST',
                     ':searchNearby',
-                    json=request_data
+                    json=request_data,
+                    headers=headers
                 )
 
                 places = response.get('places', [])

@@ -39,14 +39,27 @@ class UnlockMlsServer:
 
         # Initialize location service if Google Maps API key is available
         self.location_service = None
+
+        # Debug: Check Google Maps API key status
+        api_key = self.settings.google_maps_api_key
+        api_key_status = "configured" if api_key else "missing"
+        if api_key:
+            api_key_preview = f"{api_key[:8]}...{api_key[-4:]}" if len(api_key) > 12 else "too_short"
+        else:
+            api_key_preview = "None"
+
+        logger.info("Google Maps API key status: %s (preview: %s)", api_key_status, api_key_preview)
+
         if self.settings.google_maps_api_key:
             try:
                 self.location_service = LocationService()
                 logger.info("Location service enabled with Google Maps integration")
             except Exception as e:
-                logger.warning("Failed to initialize location service: %s", e)
+                logger.error("Failed to initialize location service: %s", e)
+                import traceback
+                logger.error("Location service initialization traceback: %s", traceback.format_exc())
         else:
-            logger.info("Location service disabled - Google Maps API key not configured")
+            logger.warning("Location service disabled - Google Maps API key not configured")
         
         # Create MCP server instance
         self.server = Server("unlock-mls-mcp")
@@ -1242,8 +1255,14 @@ class UnlockMlsServer:
 
     async def _find_distance_to_nearest(self, arguments: Dict[str, Any]) -> list[TextContent]:
         """Find distance between a property address and nearest location of specified type."""
+
+        # Debug: Check location service status
+        logger.info("Distance search requested - Location service status: %s",
+                   "available" if self.location_service else "not available")
+
         if not self.location_service:
-            return [TextContent(type="text", text="Location-based search is not available. Please configure the Google Maps API key to enable this feature.")]
+            api_key_status = "configured" if self.settings.google_maps_api_key else "missing"
+            return [TextContent(type="text", text=f"Location-based search is not available. Google Maps API key is {api_key_status}. Please configure the GOOGLE_MAPS_API_KEY environment variable to enable this feature.")]
 
         try:
             property_address = arguments["property_address"]
@@ -1255,13 +1274,16 @@ class UnlockMlsServer:
 
             # Use location service to find nearest places
             results = await self.location_service.find_distance_to_nearest(
-                property_address=property_address,
+                address=property_address,
                 place_type=place_type,
                 radius_miles=radius_miles,
                 max_results=max_results
             )
 
-            if not results:
+            # Extract the locations from the result dictionary
+            locations = results.get('nearest_locations', []) if results else []
+
+            if not locations:
                 error_msg = f"No {place_type.replace('_', ' ')} locations found within {radius_miles} miles of '{property_address}'.\n\n"
                 error_msg += "**Suggestions:**\n"
                 error_msg += f"- Try expanding the search radius (currently {radius_miles} miles)\n"
@@ -1271,11 +1293,11 @@ class UnlockMlsServer:
                 return [TextContent(type="text", text=error_msg)]
 
             # Format results
-            result_text = f"Found {len(results)} {place_type.replace('_', ' ')} location(s) near **{property_address}**:\n\n"
+            result_text = f"Found {len(locations)} {place_type.replace('_', ' ')} location(s) near **{property_address}**:\n\n"
 
-            for i, place in enumerate(results, 1):
+            for i, place in enumerate(locations, 1):
                 name = place.get('name', 'Unknown')
-                distance = place.get('distance_miles', 0)
+                distance = place.get('straight_line_distance_miles', 0)
                 address = place.get('address', 'Address not available')
                 rating = place.get('rating')
                 place_id = place.get('place_id', '')
@@ -1296,18 +1318,25 @@ class UnlockMlsServer:
             result_text += f"- **Property**: {property_address}\n"
             result_text += f"- **Looking for**: {place_type.replace('_', ' ').title()}\n"
             result_text += f"- **Search Radius**: {radius_miles} miles\n"
-            result_text += f"- **Results**: {len(results)} locations found\n"
+            result_text += f"- **Results**: {len(locations)} locations found\n"
 
-            if results:
-                nearest = results[0]
-                result_text += f"- **Nearest**: {nearest.get('name', 'Unknown')} at {nearest.get('distance_miles', 0):.1f} miles\n"
+            if locations:
+                nearest = locations[0]
+                result_text += f"- **Nearest**: {nearest.get('name', 'Unknown')} at {nearest.get('straight_line_distance_miles', 0):.1f} miles\n"
 
             return [TextContent(type="text", text=result_text)]
 
         except Exception as e:
-            # Handle errors gracefully
-            error_message = "An error occurred while finding nearby locations."
+            # Log the full error details for debugging
+            import traceback
+            logger.error("Error in find_distance_to_nearest - Exception type: %s", type(e).__name__)
+            logger.error("Error in find_distance_to_nearest - Exception message: %s", str(e))
+            logger.error("Error in find_distance_to_nearest - Full traceback: %s", traceback.format_exc())
 
+            # Handle errors gracefully with detailed error messages
+            error_message = f"Location search failed: {str(e)}"
+
+            # Check for specific Google Maps API errors
             if "google" in str(e).lower() or "places" in str(e).lower():
                 error_message = f"Google Maps service error: {str(e)}"
             elif "authentication" in str(e).lower() or "api key" in str(e).lower():
@@ -1324,7 +1353,15 @@ class UnlockMlsServer:
                 elif e.status >= 500:
                     error_message = "Google Maps service temporarily unavailable. Please try again later."
 
-            logger.error("Error in find_distance_to_nearest: %s", str(e))
+            # Check for common issues
+            elif "api_key" in str(e).lower() or "missing" in str(e).lower():
+                error_message = "Google Maps API key is missing or invalid. Please configure the GOOGLE_MAPS_API_KEY environment variable."
+            elif "location_service" in str(e).lower():
+                error_message = "Location service is not properly configured. Check Google Maps API setup."
+
+            # For debugging: include exception type and more details
+            error_message += f"\n\n**Debug Info**: {type(e).__name__}: {str(e)}"
+
             return [TextContent(type="text", text=error_message)]
 
     def _extract_zip_from_address(self, address: str) -> Optional[str]:

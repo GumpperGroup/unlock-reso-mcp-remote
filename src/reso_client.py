@@ -1,6 +1,7 @@
 """RESO Web API client for Bridge Interactive endpoints."""
 
 import asyncio
+import math
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Union
 from urllib.parse import quote, urlencode
@@ -399,6 +400,7 @@ class ResoWebApiClient:
             List of property records
         """
         logger.info("Querying properties with raw filter: %s", filter_str)
+        logger.debug("Full query URL will be: %s", f"{self.endpoints['Property']}?filter={filter_str}&top={min(limit, 200)}&orderby=ModificationTimestamp desc")
         
         query_params = {
             "filter": filter_str,
@@ -408,10 +410,15 @@ class ResoWebApiClient:
         
         query_string = self._build_odata_query(**query_params)
         url = f"{self.endpoints['Property']}?{query_string}"
-        
+
         async with aiohttp.ClientSession() as session:
-            data = await self._make_request(session, "GET", url)
-            return data.get("value", [])
+            try:
+                data = await self._make_request(session, "GET", url)
+                return data.get("value", [])
+            except Exception as e:
+                logger.error("Error in query_properties_raw with filter '%s': %s", filter_str, str(e))
+                logger.error("Full URL was: %s", url)
+                raise
     
     async def find_property_by_address(self, address: str) -> Optional[Dict[str, Any]]:
         """
@@ -470,8 +477,16 @@ class ResoWebApiClient:
         logger.info("Querying properties around coordinates: %f, %f within %f miles", 
                    latitude, longitude, radius_miles)
         
-        # Build geo.distance filter
-        geo_filter = f"geo.distance(Coordinates, POINT({longitude} {latitude})) lt {radius_miles}"
+        # Build geographic filter
+        # Use bounding box with Latitude/Longitude fields instead of geo.distance
+        # This is more reliable and works with all RESO implementations
+        # Approximation: 1 degree latitude ≈ 69 miles, longitude varies by latitude
+        lat_radius = radius_miles / 69.0
+        lng_radius = radius_miles / (69.0 * abs(math.cos(math.radians(latitude))))
+
+        latitude_filter = f"(Latitude ge {latitude - lat_radius}) and (Latitude le {latitude + lat_radius})"
+        longitude_filter = f"(Longitude ge {longitude - lng_radius}) and (Longitude le {longitude + lng_radius})"
+        geo_filter = f"({latitude_filter}) and ({longitude_filter})"
         
         # Add other filters
         additional_filters = []
